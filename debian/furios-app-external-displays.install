@@ -1,0 +1,4 @@
+external_displays /usr/lib/external-displays
+main.py /usr/lib/external-displays
+data/io.furios.ExternalDisplays.desktop /usr/share/applications
+data/io.furios.ExternalDisplays.png /usr/share/icons/hicolor/64x64/apps

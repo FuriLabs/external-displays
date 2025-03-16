@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=External Displays
+Exec=io.furios.ExternalDisplays
+Icon=io.furios.ExternalDisplays
+Terminal=false
+Type=Application
+StartupNotify=true
+Keywords=externaldisplays;display;screen
+NoDisplay=true

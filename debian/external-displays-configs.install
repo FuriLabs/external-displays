@@ -1,0 +1,4 @@
+data/xorg.card1.conf /usr/share/external-displays/
+data/external-display-display-server.service /usr/lib/systemd/system/
+data/start-externaldisplay /usr/libexec/
+data/externaldisplay.service /usr/lib/systemd/user/

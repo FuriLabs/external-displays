@@ -1,0 +1,8 @@
+[Unit]
+Description=External Display Session Service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/start-externaldisplay
+Restart=on-failure
+RestartSec=10

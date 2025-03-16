@@ -1,0 +1,34 @@
+Source: external-displays
+Maintainer: Bardia Moshiri <bardia@furilabs.com>
+Section: misc
+Priority: optional
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               python3,
+Standards-Version: 4.7.0
+Vcs-Browser: https://github.com/furilabs/external-displays
+Vcs-Git: https://github.com/furilabs/external-displays.git
+
+Package: furios-app-external-displays
+Architecture: all
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${misc:Depends},
+         ${python3:Depends},
+         python3-gi,
+         gir1.2-gtk-4.0,
+         gir1.2-adw-1,
+         gir1.2-glib-2.0,
+         python3-xlib,
+         xdotool,
+         x11-xserver-utils,
+Description: External Displays management application for FuriOS
+
+Package: external-displays-configs
+Architecture: all
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${misc:Depends},
+         ${python3:Depends},
+         xserver-xorg-core,
+         dbus-bin,
+         gnome-shell,
+Description: External Displays management application for FuriOS - configurations

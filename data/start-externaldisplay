@@ -1,0 +1,29 @@
+#!/bin/bash
+
+cleanup() {
+    echo "Restoring Wayland environment variables..."
+    dbus-update-activation-environment --systemd DISPLAY="" XDG_SESSION_TYPE=wayland EGL_PLATFORM=wayland GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland
+    echo "Cleanup complete."
+    exit
+}
+
+trap cleanup SIGINT SIGTERM
+
+# Set environment variables for X11
+echo "Setting X11 environment variables..."
+dbus-update-activation-environment --systemd DISPLAY=:1 XDG_SESSION_TYPE=x11 EGL_PLATFORM=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb
+
+DISPLAY=:1
+XDG_SESSION_TYPE=x11
+EGL_PLATFORM=x11
+GDK_BACKEND=x11
+export DISPLAY
+export XDG_SESSION_TYPE
+export EGL_PLATFORM
+export GDK_BACKEND
+
+echo "Starting GNOME Shell with X11..."
+gnome-shell --force-animations --x11
+
+# If gnome-shell exits normally, we still want to clean up
+cleanup

@@ -1,0 +1,10 @@
+[Unit]
+Description=External Display X Server
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/X :1 -config /usr/share/external-displays/xorg.card1.conf -sharevts -novtswitch
+Restart=on-failure
+RestartSec=10
+KillMode=process
