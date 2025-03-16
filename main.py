@@ -8,6 +8,10 @@
 
 import gi
 import os
+
+# We set DISPLAY to make xdotool and xrandr work for display management, but always show the app in Wayland Phosh
+os.environ['GDK_BACKEND'] = 'wayland'
+
 import sys
 import time
 import subprocess
@@ -28,6 +32,9 @@ async def pump_gtk_events():
     if len(sys.argv) > 1:
         os.environ['DISPLAY'] = sys.argv[1]
         print(f"Overriding DISPLAY with: {sys.argv[1]}")
+    elif 'DISPLAY' not in os.environ:
+        os.environ['DISPLAY'] = ':1'
+        print("DISPLAY not set, defaulting to :1")
 
     check_dependencies()
 
