@@ -4,16 +4,19 @@
 # Authors:
 # Bardia Moshiri <bardia@furilabs.com>
 
-import os
-import subprocess
 import gi
+import os
+import time
+import threading
+import subprocess
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Adw, Gio
 from Xlib import display
+from external_displays.edid import get_display_info
 from external_displays.keyboard_emulator import KeyboardEmulator
 from external_displays.touch_mouse_emulator import TouchMouseEmulator
-from external_displays.edid import get_display_info
+from external_displays.utils import check_service_status, start_service, stop_service, wait_for_file, wait_for_display_connected
 
 class ExternalDisplays(Adw.Application):
     def __init__(self, **kwargs):
@@ -30,6 +33,8 @@ class ExternalDisplays(Adw.Application):
         # Flag to track if focus regain is active
         self.focus_regain_active = False
         self.focus_regain_source_id = None
+
+        self.enable_file_path = os.path.expanduser("~/.enable_external_display")
 
     def on_activate(self, app):
         self.win = Adw.ApplicationWindow(application=app)
@@ -133,7 +138,26 @@ class ExternalDisplays(Adw.Application):
 
         self.create_config_page()
 
-        GLib.timeout_add_seconds(5, self.refresh_display_info)
+        displaylink_active = check_service_status("displaylink-driver.service", system_bus=True)
+        display_server_active = check_service_status("external-display-display-server.service", system_bus=True)
+        services_enabled = displaylink_active and display_server_active
+
+        if services_enabled and not os.path.exists(self.enable_file_path):
+            try:
+                open(self.enable_file_path, 'a').close()
+            except Exception as e:
+                print(f"Error creating enable file at startup: {e}")
+        elif not services_enabled and os.path.exists(self.enable_file_path):
+            try:
+                os.remove(self.enable_file_path)
+            except Exception as e:
+                print(f"Error removing enable file at startup: {e}")
+
+        self.update_display_ui_state(services_enabled)
+
+        self.refresh_timeout_id = None
+        if services_enabled:
+            self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
 
         # Regain focus periodically (this is a hack)
         GLib.timeout_add(1000, self.regain_focus)
@@ -309,6 +333,35 @@ class ExternalDisplays(Adw.Application):
         # Preferences page
         preferences_page = Adw.PreferencesPage()
 
+        management_group = Adw.PreferencesGroup()
+        management_group.set_title("Display Management")
+
+        # Display services switch
+        services_row = Adw.ActionRow()
+        services_row.set_title("Display Services")
+        services_row.set_subtitle("Enable/disable display services")
+
+        # Create the switch
+        self.display_services_switch = Gtk.Switch()
+        self.display_services_switch.set_valign(Gtk.Align.CENTER)
+
+        # Check initial state of services
+        displaylink_active = check_service_status("displaylink-driver.service", system_bus=True)
+        display_server_active = check_service_status("external-display-display-server.service", system_bus=True)
+
+        # Set initial state of switch
+        self.display_services_switch.set_active(displaylink_active and display_server_active)
+
+        # Connect signal
+        self.display_services_switch.connect("state-set", self.on_display_services_toggled)
+
+        # Add switch to row
+        services_row.add_suffix(self.display_services_switch)
+        services_row.set_activatable_widget(self.display_services_switch)
+
+        management_group.add(services_row)
+        preferences_page.add(management_group)
+
         # Display Information group
         info_group = Adw.PreferencesGroup()
         info_group.set_title("Display Information")
@@ -412,6 +465,147 @@ class ExternalDisplays(Adw.Application):
         scrolled_window.set_child(preferences_page)
 
         self.config_page.append(scrolled_window)
+
+    def on_display_services_toggled(self, switch, state):
+        if state:
+            self.show_progress_dialog("Starting display services...")
+            thread = threading.Thread(target=self.start_display_services)
+            thread.daemon = True
+            thread.start()
+        else:
+            self.show_progress_dialog("Stopping display services...")
+            thread = threading.Thread(target=self.stop_display_services)
+            thread.daemon = True
+            thread.start()
+        return False
+
+    def update_display_ui_state(self, enabled):
+        if not hasattr(self, 'display_info_labels') or not hasattr(self, 'modes_expander'):
+            return
+
+        if enabled:
+            if not hasattr(self, 'refresh_timeout_id') or self.refresh_timeout_id is None:
+                self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
+
+            self.modes_expander.set_sensitive(True)
+
+            self.refresh_display_info()
+        else:
+            for key, label in self.display_info_labels.items():
+                label.set_text("")
+
+            self.modes_expander.set_sensitive(False)
+
+            if hasattr(self, 'refresh_timeout_id') and self.refresh_timeout_id is not None:
+                GLib.source_remove(self.refresh_timeout_id)
+                self.refresh_timeout_id = None
+
+    def show_progress_dialog(self, message):
+        self.progress_dialog = Adw.Dialog.new()
+        self.progress_dialog.set_content_width(350)
+        self.progress_dialog.set_content_height(150)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        content.set_margin_top(24)
+        content.set_margin_bottom(24)
+        content.set_margin_start(24)
+        content.set_margin_end(24)
+
+        spinner = Gtk.Spinner()
+        spinner.set_size_request(32, 32)
+        spinner.start()
+        content.append(spinner)
+
+        label = Gtk.Label(label=message)
+        content.append(label)
+
+        self.progress_dialog.set_child(content)
+        self.progress_dialog.present(self.win)
+
+    def ensure_close_progress_dialog(self):
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+        return False
+
+    def start_display_services(self):
+        try:
+            success = True
+
+            try:
+                open(self.enable_file_path, 'a').close()
+            except Exception as e:
+                print(f"Error creating enable file: {e}")
+                GLib.idle_add(self.show_toast, "Failed to enable display services")
+                success = False
+
+            if not start_service("displaylink-driver.service", system_bus=True):
+                GLib.idle_add(self.show_toast, "Failed to start displaylink driver")
+                success = False
+
+            if success:
+                if not wait_for_file("/sys/class/drm/card0"):
+                    GLib.idle_add(self.show_toast, "Timeout waiting for display")
+                    success = False
+
+            if success:
+                if not wait_for_display_connected(self.card_path, self.connector):
+                    GLib.idle_add(self.show_toast, "Timeout waiting for display connection")
+                    success = False
+
+            if success:
+                if not start_service("external-display-display-server.service", system_bus=True):
+                    GLib.idle_add(self.show_toast, "Failed to start display server")
+                    success = False
+
+            if success:
+                if not start_service("externaldisplay.service"):
+                    GLib.idle_add(self.show_toast, "Failed to start external display service")
+                    success = False
+
+            if success:
+                GLib.idle_add(self.show_toast, "Display services enabled successfully")
+                GLib.idle_add(self.update_display_ui_state, True)
+            else:
+                if os.path.exists(self.enable_file_path):
+                    try:
+                        os.remove(self.enable_file_path)
+                    except Exception as e:
+                        print(f"Error removing enable file after failure: {e}")
+
+                GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+
+            GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+        except Exception as e:
+            print(f"Unexpected error in start_display_services: {e}")
+            GLib.idle_add(self.show_toast, f"Error enabling display services: {e}")
+            GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+            GLib.idle_add(self.close_progress_dialog)
+
+        return False
+
+    def stop_display_services(self):
+        try:
+            if os.path.exists(self.enable_file_path):
+                try:
+                    os.remove(self.enable_file_path)
+                except Exception as e:
+                    print(f"Error removing enable file: {e}")
+                    GLib.idle_add(self.show_toast, f"Failed to disable display services")
+
+            stop_service("externaldisplay.service")
+            stop_service("external-display-display-server.service", system_bus=True)
+            stop_service("displaylink-driver.service", system_bus=True)
+
+            GLib.idle_add(self.show_toast, "Display services stopped successfully")
+            GLib.idle_add(self.update_display_ui_state, False)
+            GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+        except Exception as e:
+            print(f"Unexpected error in stop_display_services: {e}")
+            GLib.idle_add(self.show_toast, f"Error stopping display services: {e}")
+            GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+
+        return False
 
     def refresh_display_info(self):
         if not hasattr(self, 'display_info_labels'):
