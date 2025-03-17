@@ -7,6 +7,7 @@
 import gi
 import os
 import time
+import glob
 import threading
 import subprocess
 gi.require_version('Gtk', '4.0')
@@ -25,7 +26,7 @@ class ExternalDisplays(Adw.Application):
 
         self.target_display = os.environ.get('DISPLAY', ':1')
         self.card_path = "card1"
-        self.connector = "DVI-I-1"
+        self.connector = self.detect_connector()
 
         self.mode_radio_buttons = {}
         self.mode_radio_handlers = {}
@@ -35,6 +36,24 @@ class ExternalDisplays(Adw.Application):
         self.focus_regain_source_id = None
 
         self.enable_file_path = os.path.expanduser("~/.enable_external_display")
+
+    def detect_connector(self):
+        default_connector = "DVI-I-1"
+        default_path = f"/sys/class/drm/{self.card_path}/{self.card_path}-{default_connector}"
+
+        if os.path.exists(default_path):
+            return default_connector
+
+        pattern = f"/sys/class/drm/{self.card_path}/{self.card_path}-DVI-I-*"
+        matching_paths = glob.glob(pattern)
+
+        if matching_paths:
+            connector = matching_paths[0].split('-')[-1]
+            print(f"Default connector not found. Using: {connector}")
+            return connector
+
+        print(f"No DVI-I connectors found. Falling back to default: {default_connector}")
+        return default_connector
 
     def on_activate(self, app):
         self.win = Adw.ApplicationWindow(application=app)
