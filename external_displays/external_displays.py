@@ -614,7 +614,6 @@ class ExternalDisplays(Adw.Application):
 
             stop_service("externaldisplay.service")
             stop_service("external-display-display-server.service", system_bus=True)
-            stop_service("displaylink-driver.service", system_bus=True)
 
             GLib.idle_add(self.show_toast, "Display services stopped successfully")
             GLib.idle_add(self.update_display_ui_state, False)
