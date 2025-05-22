@@ -10,10 +10,13 @@ import time
 import glob
 import threading
 import subprocess
+
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Adw, Gio
+
 from Xlib import display
+
 from external_displays.edid import get_display_info
 from external_displays.keyboard_emulator import KeyboardEmulator
 from external_displays.touch_mouse_emulator import TouchMouseEmulator
@@ -24,10 +27,17 @@ class ExternalDisplays(Adw.Application):
         super().__init__(**kwargs)
         self.connect('activate', self.on_activate)
 
+        # Display and hardware configuration
         self.target_display = os.environ.get('DISPLAY', ':1')
         self.card_path = "card1"
         self.connector = self.detect_connector()
+        self.enable_file_path = os.path.expanduser("~/.enable_external_display")
 
+        # Input device management
+        self.input_device_buttons = []
+        self.input_device_rows = []
+
+        # Display mode management
         self.mode_radio_buttons = {}
         self.mode_radio_handlers = {}
 
@@ -35,7 +45,43 @@ class ExternalDisplays(Adw.Application):
         self.focus_regain_active = False
         self.focus_regain_source_id = None
 
-        self.enable_file_path = os.path.expanduser("~/.enable_external_display")
+        # UI widgets (will be initialized in on_activate)
+        self.win = None
+        self.toast_overlay = None
+        self.toolbar_view = None
+        self.header_bar = None
+        self.bottom_sheet = None
+        self.stack = None
+        self.config_page = None
+        self.input_page = None
+        self.drawing_area = None
+
+        # Switches and controls
+        self.display_services_switch = None
+
+        # Labels for display info
+        self.status_value = None
+        self.power_value = None
+        self.mfg_value = None
+        self.display_info_labels = {}
+
+        # Expander rows
+        self.modes_expander = None
+        self.inputs_expander = None
+
+        # Emulators
+        self.keyboard_emulator = None
+        self.touch_mouse_emulator = None
+
+        # Controllers
+        self.key_controller = None
+        self.config_page_key_controller = None
+
+        # Refresh timer
+        self.refresh_timeout_id = None
+
+        # Progress dialog
+        self.progress_dialog = None
 
     def detect_connector(self):
         default_connector = "DVI-I-1"
@@ -82,6 +128,13 @@ class ExternalDisplays(Adw.Application):
 
         # Header bar
         self.header_bar = Adw.HeaderBar()
+
+        # Add refresh button at the start (left side)
+        refresh_button = Gtk.Button()
+        refresh_button.set_icon_name("view-refresh-symbolic")
+        refresh_button.set_tooltip_text("Refresh display information and input devices")
+        refresh_button.connect("clicked", self.on_refresh_clicked)
+        self.header_bar.pack_start(refresh_button)
 
         # Menu
         menu_button = Gtk.MenuButton()
@@ -186,6 +239,99 @@ class ExternalDisplays(Adw.Application):
             self.connect_key_controller()
 
         self.win.present()
+
+    def load_input_devices(self):
+        if not hasattr(self, 'inputs_expander'):
+            return
+
+        # Remove all existing rows that we previously added
+        if hasattr(self, 'input_device_rows'):
+            for row in self.input_device_rows:
+                self.inputs_expander.remove(row)
+            self.input_device_rows.clear()
+        else:
+            self.input_device_rows = []
+
+        try:
+            settings = Gio.Settings.new('io.furios.input-redirector')
+            current_paths = settings.get_string('input-paths')
+            selected_paths = set(current_paths.split(',')) if current_paths else set()
+        except Exception as e:
+            print(f"Error reading input paths from gsettings: {e}")
+            selected_paths = set()
+
+        self.input_device_buttons = []
+
+        try:
+            devices_path = "/dev/input/by-id"
+            if os.path.exists(devices_path):
+                devices = sorted(os.listdir(devices_path))
+
+                if not devices:
+                    no_devices_row = Adw.ActionRow()
+                    no_devices_row.set_title("No input devices found")
+                    self.inputs_expander.add_row(no_devices_row)
+                    self.input_device_rows.append(no_devices_row)
+                else:
+                    for device in devices:
+                        device_path = os.path.join(devices_path, device)
+
+                        # Only include event devices (skip js devices)
+                        if 'event' in device:
+                            try:
+                                real_path = os.path.realpath(device_path)
+
+                                device_row = Adw.ActionRow()
+                                device_row.set_title(device)
+                                device_row.set_subtitle(real_path)
+
+                                checkbox = Gtk.CheckButton()
+                                checkbox.set_active(real_path in selected_paths)
+                                checkbox.connect("toggled", self.on_input_device_toggled)
+
+                                self.input_device_buttons.append((checkbox, real_path))
+                                device_row.add_prefix(checkbox)
+                                self.inputs_expander.add_row(device_row)
+                                self.input_device_rows.append(device_row)
+                            except Exception as e:
+                                print(f"Error processing device {device}: {e}")
+                                continue
+            else:
+                no_devices_row = Adw.ActionRow()
+                no_devices_row.set_title("Input devices directory not found")
+                self.inputs_expander.add_row(no_devices_row)
+                self.input_device_rows.append(no_devices_row)
+        except Exception as e:
+            print(f"Error listing input devices: {e}")
+            error_row = Adw.ActionRow()
+            error_row.set_title("Error loading input devices")
+            self.inputs_expander.add_row(error_row)
+            self.input_device_rows.append(error_row)
+
+    def on_refresh_clicked(self, button):
+        # Refresh display information
+        if hasattr(self, 'display_info_labels'):
+            display_info = get_display_info(self.card_path, self.connector)
+            for key, value in display_info.items():
+                if key in self.display_info_labels:
+                    self.display_info_labels[key].set_text(value)
+
+        # Refresh current resolution in display modes
+        current_resolution = self.get_current_resolution()
+        if current_resolution and current_resolution in self.mode_radio_buttons:
+            button = self.mode_radio_buttons[current_resolution]
+            if not button.get_active():
+                if current_resolution in self.mode_radio_handlers:
+                    handler_id = self.mode_radio_handlers[current_resolution]
+                    button.handler_block(handler_id)
+                    button.set_active(True)
+                    button.handler_unblock(handler_id)
+                else:
+                    button.set_active(True)
+
+        self.load_input_devices()
+
+        self.show_toast("Refresh complete")
 
     def connect_key_controller(self):
         if not hasattr(self, 'key_controller') or self.key_controller is None:
@@ -481,6 +627,21 @@ class ExternalDisplays(Adw.Application):
 
         preferences_page.add(modes_group)
 
+        # Input devices section
+        inputs_group = Adw.PreferencesGroup()
+        inputs_group.set_title("Inputs")
+
+        # Expander row for input devices
+        self.inputs_expander = Adw.ExpanderRow()
+        self.inputs_expander.set_title("Input Devices")
+        self.inputs_expander.set_subtitle("Select devices to redirect")
+
+        # Load the input devices
+        self.load_input_devices()
+
+        inputs_group.add(self.inputs_expander)
+        preferences_page.add(inputs_group)
+
         scrolled_window.set_child(preferences_page)
 
         self.config_page.append(scrolled_window)
@@ -507,6 +668,7 @@ class ExternalDisplays(Adw.Application):
                 self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
 
             self.modes_expander.set_sensitive(True)
+            self.inputs_expander.set_sensitive(True)
 
             self.refresh_display_info()
         else:
@@ -514,6 +676,7 @@ class ExternalDisplays(Adw.Application):
                 label.set_text("")
 
             self.modes_expander.set_sensitive(False)
+            self.inputs_expander.set_sensitive(False)
 
             if hasattr(self, 'refresh_timeout_id') and self.refresh_timeout_id is not None:
                 GLib.source_remove(self.refresh_timeout_id)
@@ -547,9 +710,23 @@ class ExternalDisplays(Adw.Application):
             self.progress_dialog = None
         return False
 
+    def set_input_redirector_display(self):
+        schema = 'io.furios.input-redirector'
+        key = 'display'
+        try:
+            source = Gio.SettingsSchemaSource.get_default()
+            if not source or not source.lookup(schema, False):
+                return
+            settings = Gio.Settings.new(schema)
+            settings.set_string(key, self.target_display)
+        except Exception as e:
+            print(f"Failed to set input redirector display: {e}")
+
     def start_display_services(self):
         try:
             success = True
+
+            self.set_input_redirector_display()
 
             try:
                 open(self.enable_file_path, 'a').close()
@@ -582,6 +759,10 @@ class ExternalDisplays(Adw.Application):
                     GLib.idle_add(self.show_toast, "Failed to start external display service")
                     success = False
 
+            if not start_service("input-redirector.service"):
+                GLib.idle_add(self.show_toast, "Failed to start input redirector")
+                success = False
+
             if success:
                 GLib.idle_add(self.show_toast, "Display services enabled successfully")
                 GLib.idle_add(self.update_display_ui_state, True)
@@ -613,7 +794,15 @@ class ExternalDisplays(Adw.Application):
                     GLib.idle_add(self.show_toast, f"Failed to disable display services")
 
             stop_service("externaldisplay.service")
+            stop_service("input-redirector.service")
             stop_service("external-display-display-server.service", system_bus=True)
+
+            try:
+                settings = Gio.Settings.new('io.furios.input-redirector')
+                settings.set_string('input-paths', '')
+                print("Cleared input-redirector input-paths")
+            except Exception as e:
+                print(f"Error clearing input paths: {e}")
 
             GLib.idle_add(self.show_toast, "Display services stopped successfully")
             GLib.idle_add(self.update_display_ui_state, False)
@@ -711,6 +900,12 @@ class ExternalDisplays(Adw.Application):
 
         self.bottom_sheet.set_sheet(content)
 
+    def on_input_device_toggled(self, button):
+        paths = [real for btn, real in self.input_device_buttons if btn.get_active()]
+        val = ','.join(paths)
+        settings = Gio.Settings.new('io.furios.input-redirector')
+        settings.set_string('input-paths', val)
+
     def on_apply_settings(self, button):
         sheet = self.bottom_sheet.get_sheet()
         sensitivity_updated = False
@@ -732,6 +927,7 @@ class ExternalDisplays(Adw.Application):
                             if entry_text != self.target_display:
                                 self.target_display = entry_text
                                 os.environ['DISPLAY'] = self.target_display
+                                self.set_input_redirector_display()
                                 self.touch_mouse_emulator.update_target_dimensions()
                                 self.show_toast(f"Target display changed to {self.target_display}")
                                 display_updated = True
