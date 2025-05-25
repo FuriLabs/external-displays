@@ -94,7 +94,8 @@ class ExternalDisplays(Adw.Application):
         matching_paths = glob.glob(pattern)
 
         if matching_paths:
-            connector = matching_paths[0].split('-')[-1]
+            basename = os.path.basename(matching_paths[0])
+            connector = basename.split('-', 1)[1]
             print(f"Default connector not found. Using: {connector}")
             return connector
 
@@ -839,6 +840,9 @@ class ExternalDisplays(Adw.Application):
                     # If we don't have the handler ID for some reason, just set it active
                     button.set_active(True)
 
+        if display_info.get('status') == 'connected':
+            if self.refresh_timeout_id:
+                GLib.source_remove(self.refresh_timeout_id)
         return True
 
     def create_settings_content(self):
@@ -919,7 +923,6 @@ class ExternalDisplays(Adw.Application):
                     if isinstance(box_child, Gtk.Scale) and not sensitivity_updated:
                         sensitivity = box_child.get_value()
                         self.touch_mouse_emulator.sensitivity = sensitivity
-                        self.show_toast(f"Sensitivity set to {sensitivity}")
                         sensitivity_updated = True
                     elif isinstance(box_child, Gtk.Entry):
                         entry_text = box_child.get_text()
@@ -929,17 +932,14 @@ class ExternalDisplays(Adw.Application):
                                 os.environ['DISPLAY'] = self.target_display
                                 self.set_input_redirector_display()
                                 self.touch_mouse_emulator.update_target_dimensions()
-                                self.show_toast(f"Target display changed to {self.target_display}")
                                 display_updated = True
                         elif not connector_updated and child.get_first_child().get_text() == "Connector":
                             if entry_text != self.connector:
                                 self.connector = entry_text
-                                self.show_toast(f"Connector changed to {self.connector}")
                                 connector_updated = True
                         elif not card_updated and child.get_first_child().get_text() == "Card Path":
                             if entry_text != self.card_path:
                                 self.card_path = entry_text
-                                self.show_toast(f"Card path changed to {self.card_path}")
                                 card_updated = True
 
         if connector_updated or card_updated:
