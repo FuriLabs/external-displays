@@ -21,6 +21,7 @@ Depends: ${misc:Depends},
          python3-xlib,
          xdotool,
          x11-xserver-utils,
+         input-redirector,
 Description: External Displays management application for FuriOS
 
 Package: external-displays-configs
