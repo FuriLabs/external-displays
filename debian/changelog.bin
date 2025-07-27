@@ -1,0 +1,15 @@
+external-displays (6.8.2+dfsg-8+git20250530022612.e974255.release) trixie; urgency=medium
+
+  * initial commit
+  * debian: package up external displays
+  * main: set GDK_BACKEND to wayland to always start in phosh
+  * Add a polkit rule to allow managing display server
+  * external_displays: add a button to manage display services
+  * external_displays: autodetect the display index
+  * external_displays: don't stop evdi on service stop
+  * external_displays: manage input redirector
+  * external_displays: fixup DVI port matching and stop refresh once connected
+  * debian: add input-redirector to depends
+
+ -- Bardia Moshiri <bardia@furilabs.com>  Thu, 29 May 2025 20:26:12 -0400
+
