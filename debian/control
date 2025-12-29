@@ -23,6 +23,7 @@ Depends: ${misc:Depends},
          xdotool,
          x11-xserver-utils,
          input-redirector,
+         external-displays-configs,
 Description: External Displays management application for FuriOS
 
 Package: external-displays-configs
