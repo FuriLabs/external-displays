@@ -1,10 +1,17 @@
 [Unit]
-Description=External Display X Server
+Description=External Display Server
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/X :1 -config /usr/share/external-displays/xorg.card1.conf -sharevts -novtswitch
+# if we are using the memfd streamer method we do not need this service, but keep it for compatibility with old methods
+ExecStart=/bin/bash -c '\
+if [ -x /usr/libexec/mutter-memfd-streamer ]; then \
+    echo "mutter-memfd-streamer present, skipping external X server"; \
+    exit 0; \
+else \
+    exec /usr/bin/X :1 -config /usr/share/external-displays/xorg.card1.conf -sharevts -novtswitch; \
+fi'
 Restart=on-failure
 RestartSec=10
 KillMode=process

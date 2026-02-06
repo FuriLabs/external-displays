@@ -9,21 +9,65 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# Set environment variables for X11
-echo "Setting X11 environment variables..."
-dbus-update-activation-environment --systemd DISPLAY=:1 XDG_SESSION_TYPE=x11 EGL_PLATFORM=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb
+kill_pair_and_cleanup() {
+    local pid1="$1"
+    local pid2="$2"
 
-DISPLAY=:1
-XDG_SESSION_TYPE=x11
-EGL_PLATFORM=x11
-GDK_BACKEND=x11
-export DISPLAY
-export XDG_SESSION_TYPE
-export EGL_PLATFORM
-export GDK_BACKEND
+    if [ -n "$pid1" ] && kill -0 "$pid1" 2>/dev/null; then
+        kill "$pid1" 2>/dev/null || true
+    fi
+    if [ -n "$pid2" ] && kill -0 "$pid2" 2>/dev/null; then
+        kill "$pid2" 2>/dev/null || true
+    fi
 
-echo "Starting GNOME Shell with X11..."
-gnome-shell --force-animations --x11
+    sleep 1
 
-# If gnome-shell exits normally, we still want to clean up
-cleanup
+    if [ -n "$pid1" ] && kill -0 "$pid1" 2>/dev/null; then
+        kill -9 "$pid1" 2>/dev/null || true
+    fi
+    if [ -n "$pid2" ] && kill -0 "$pid2" 2>/dev/null; then
+        kill -9 "$pid2" 2>/dev/null || true
+    fi
+
+    cleanup
+}
+
+if [ -x /usr/libexec/mutter-memfd-streamer ]; then
+    echo "mutter-memfd-steamer found, using mutter wayland backend"
+
+    XDG_SESSION_TYPE=wayland
+    GNOME_SHELL_SKIP_DBUS=1
+    export XDG_SESSION_TYPE
+    export GNOME_SHELL_SKIP_DBUS
+
+    echo "Starting mutter DRM streamer"
+    /usr/libexec/mutter-memfd-streamer &
+    MEMFD_PID=$!
+
+    echo "Starting GNOME Shell with Wayland..."
+    gnome-shell --no-x11 --wayland --nested &
+    SHELL_PID=$!
+
+    wait -n "$MEMFD_PID" "$SHELL_PID"
+    echo "One process exited. stopping both..."
+
+    kill_pair_and_cleanup "$MEMFD_PID" "$SHELL_PID"
+
+else
+    echo "Setting X11 environment variables..."
+    dbus-update-activation-environment --systemd DISPLAY=:1 XDG_SESSION_TYPE=x11 EGL_PLATFORM=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb
+
+    DISPLAY=:1
+    XDG_SESSION_TYPE=x11
+    EGL_PLATFORM=x11
+    GDK_BACKEND=x11
+    export DISPLAY
+    export XDG_SESSION_TYPE
+    export EGL_PLATFORM
+    export GDK_BACKEND
+
+    echo "Starting GNOME Shell with X11..."
+    gnome-shell --force-animations --x11
+
+    cleanup
+fi
