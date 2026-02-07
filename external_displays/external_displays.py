@@ -149,6 +149,9 @@ class ExternalDisplays(Adw.Application):
         menu_button.set_menu_model(menu)
         self.header_bar.pack_end(menu_button)
 
+        # Hide menu model for now
+        menu_button.set_visible(False)
+
         # Add actions for the menu items
         settings_action = Gio.SimpleAction.new("settings", None)
         settings_action.connect("activate", self.on_settings_action)
@@ -627,6 +630,9 @@ class ExternalDisplays(Adw.Application):
         modes_group.add(self.modes_expander)
 
         preferences_page.add(modes_group)
+
+        # Hide display modes for now
+        modes_group.set_visible(False)
 
         # Input devices section
         inputs_group = Adw.PreferencesGroup()
