@@ -215,8 +215,8 @@ class ExternalDisplays(Adw.Application):
         self.create_config_page()
 
         displaylink_active = check_service_status("displaylink-driver.service", system_bus=True)
-        display_server_active = check_service_status("external-display-display-server.service", system_bus=True)
-        services_enabled = displaylink_active and display_server_active
+        externaldisplay_active = check_service_status("externaldisplay.service", system_bus=False)
+        services_enabled = displaylink_active and externaldisplay_active
 
         if services_enabled and not os.path.exists(self.enable_file_path):
             try:
@@ -516,10 +516,10 @@ class ExternalDisplays(Adw.Application):
 
         # Check initial state of services
         displaylink_active = check_service_status("displaylink-driver.service", system_bus=True)
-        display_server_active = check_service_status("external-display-display-server.service", system_bus=True)
+        externaldisplay_active = check_service_status("externaldisplay.service", system_bus=False)
 
         # Set initial state of switch
-        self.display_services_switch.set_active(displaylink_active and display_server_active)
+        self.display_services_switch.set_active(displaylink_active and externaldisplay_active)
 
         # Connect signal
         self.display_services_switch.connect("state-set", self.on_display_services_toggled)
