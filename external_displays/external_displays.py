@@ -98,6 +98,15 @@ class ExternalDisplays(Adw.Application):
         # Progress dialog
         self.progress_dialog = None
 
+    def set_gnome_wm_preference(self, value):
+        try:
+            settings = Gio.Settings.new("org.gnome.desktop.wm.preferences")
+            settings.set_string("button-layout", value)
+            return True
+        except Exception as e:
+            print(f"Failed to set gsettings org.gnome.desktop.wm.preferences button-layout='{value}': {e}")
+            return False
+
     def detect_connector(self):
         default_connector = "DVI-I-1"
         default_path = f"/sys/class/drm/{self.card_path}/{self.card_path}-{default_connector}"
@@ -694,10 +703,15 @@ class ExternalDisplays(Adw.Application):
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Failed to start input redirector")
                 success = False
 
+            self.set_gnome_wm_preference(":minimize,maximize,close")
+
             if success:
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services enabled successfully")
                 GLib.idle_add(self.update_display_ui_state, True)
             else:
+                # Restore if we failed
+                self.set_gnome_wm_preference("appmenu:")
+
                 if os.path.exists(self.enable_file_path):
                     try:
                         os.remove(self.enable_file_path)
@@ -710,12 +724,18 @@ class ExternalDisplays(Adw.Application):
             print(f"Unexpected error in start_display_services: {e}")
             GLib.idle_add(ui.create_toast, self.toast_overlay, f"Error enabling display services: {e}")
             GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+
+            self.set_gnome_wm_preference("appmenu:")
+
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
 
         return False
 
     def stop_display_services(self):
         try:
+            # Restore original layout
+            GLib.idle_add(self.set_gnome_wm_preference, "appmenu:")
+
             if os.path.exists(self.enable_file_path):
                 try:
                     os.remove(self.enable_file_path)
