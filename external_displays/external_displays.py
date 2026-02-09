@@ -283,27 +283,35 @@ class ExternalDisplays(Adw.Application):
             self.inputs_expander.add_row(error_row)
             self.input_device_rows.append(error_row)
 
-    def on_refresh_clicked(self, _button):
-        # Refresh display information
-        if self.display_info_labels:
-            display_info = get_display_info(self.card_path, self.connector)
-            for key, value in display_info.items():
-                if key in self.display_info_labels:
-                    self.display_info_labels[key].set_text(value)
+    def update_display_info(self):
+        if not self.display_info_labels:
+            return None
 
-        # Refresh current resolution in display modes
+        display_info = get_display_info(self.card_path, self.connector)
+        for key, value in display_info.items():
+            if key in self.display_info_labels:
+                self.display_info_labels[key].set_text(value)
+
         current_resolution = self.get_current_resolution()
         if current_resolution and current_resolution in self.mode_radio_buttons:
+            # Only update if the current active button isn't already set to the current resolution
             button = self.mode_radio_buttons[current_resolution]
             if not button.get_active():
+                # Temporarily block signal handlers
                 if current_resolution in self.mode_radio_handlers:
                     handler_id = self.mode_radio_handlers[current_resolution]
                     button.handler_block(handler_id)
                     button.set_active(True)
                     button.handler_unblock(handler_id)
                 else:
+                    # If we don't have the handler ID for some reason, just set it active
                     button.set_active(True)
 
+        return display_info
+
+    def on_refresh_clicked(self, _button):
+        # Refresh display information
+        self.update_display_info()
         self.load_input_devices()
         ui.create_toast(self.toast_overlay, "Refresh complete")
 
@@ -765,28 +773,9 @@ class ExternalDisplays(Adw.Application):
         return False
 
     def refresh_display_info(self):
-        if not self.display_info_labels:
+        display_info = self.update_display_info()
+        if not display_info:
             return True
-
-        display_info = get_display_info(self.card_path, self.connector)
-        for key, value in display_info.items():
-            if key in self.display_info_labels:
-                self.display_info_labels[key].set_text(value)
-
-        current_resolution = self.get_current_resolution()
-        if current_resolution and current_resolution in self.mode_radio_buttons:
-            # Only update if the current active button isn't already set to the current resolution
-            button = self.mode_radio_buttons[current_resolution]
-            if not button.get_active():
-                # Temporarily block signal handlers
-                if current_resolution in self.mode_radio_handlers:
-                    handler_id = self.mode_radio_handlers[current_resolution]
-                    button.handler_block(handler_id)
-                    button.set_active(True)
-                    button.handler_unblock(handler_id)
-                else:
-                    # If we don't have the handler ID for some reason, just set it active
-                    button.set_active(True)
 
         if display_info.get("status") == "connected":
             if self.refresh_timeout_id:
