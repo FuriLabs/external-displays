@@ -221,6 +221,29 @@ class ExternalDisplays(Adw.Application):
 
         self.win.present()
 
+    def get_sysfs_event_name(self, by_id_name, real_path):
+        name = None
+        try:
+            base = os.path.basename(real_path)
+            name_path = f"/sys/class/input/{base}/device/name"
+            if os.path.exists(name_path):
+                with open(name_path, "r", encoding="utf-8", errors="ignore") as f:
+                    name = f.read().strip()
+        except Exception as e:
+            print(f"Error reading sysfs name for {real_path}: {e}")
+
+        base_label = name or by_id_name
+
+        hint = None
+        if "-if01" in by_id_name:
+            hint = "if01"
+        elif "-if02" in by_id_name:
+            hint = "if02"
+
+        if hint:
+            return f"{base_label} ({hint})"
+        return base_label
+
     def load_input_devices(self):
         if not hasattr(self, "inputs_expander") or self.inputs_expander is None:
             return
@@ -259,7 +282,10 @@ class ExternalDisplays(Adw.Application):
 
                         try:
                             real_path = os.path.realpath(device_path)
-                            device_row = ui.create_action_row(device, real_path)
+
+                            friendly = self.get_sysfs_event_name(device, real_path)
+
+                            device_row = ui.create_action_row(friendly, real_path)
 
                             checkbox = Gtk.CheckButton()
                             checkbox.set_active(real_path in selected_paths)
