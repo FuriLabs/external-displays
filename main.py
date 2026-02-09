@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0
-# Copyright (C) 2025 Furi Labs
+# Copyright (C) 2026 Furi Labs
 #
 # Authors:
 # Bardia Moshiri <bardia@furilabs.com>
