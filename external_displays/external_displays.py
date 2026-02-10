@@ -717,7 +717,7 @@ class ExternalDisplays(Adw.Application):
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Failed to start displaylink driver")
                 success = False
 
-            if success and not wait_for_file("/sys/class/drm/card0"):
+            if success and not wait_for_file("/sys/class/drm/card1"):
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Timeout waiting for display")
                 success = False
 
@@ -768,7 +768,7 @@ class ExternalDisplays(Adw.Application):
     def stop_display_services(self):
         try:
             # Restore original layout
-            GLib.idle_add(self.set_gnome_wm_preference, "appmenu:")
+            self.set_gnome_wm_preference("appmenu:")
 
             if os.path.exists(self.enable_file_path):
                 try:
