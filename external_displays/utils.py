@@ -244,3 +244,30 @@ def get_input_redirector_input_paths():
     except Exception as e:
         print(f"Error reading input redirector input paths: {e}")
         return set()
+
+def set_power_profile_overdrive(enabled):
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+
+        pp_proxy = Gio.DBusProxy.new_sync(
+            bus,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            "org.freedesktop.UPower.PowerProfiles",
+            "/org/freedesktop/UPower/PowerProfiles",
+            "org.freedesktop.UPower.PowerProfiles",
+            None,
+        )
+
+        pp_proxy.call_sync(
+            "EnableOverdrive",
+            GLib.Variant("(b)", (bool(enabled),)),
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
+        )
+
+        return True
+    except Exception as e:
+        print(f"Failed to set power profile overdrive: {e}")
+        return False

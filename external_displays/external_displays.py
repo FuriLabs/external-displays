@@ -30,6 +30,7 @@ from external_displays.utils import (
     set_input_redirector_display,
     set_input_redirector_input_paths,
     get_input_redirector_input_paths,
+    set_power_profile_overdrive,
 )
 
 from external_displays import ui
@@ -494,14 +495,24 @@ class ExternalDisplays(Adw.Application):
         self.config_page.append(scrolled)
 
     def on_display_services_toggled(self, _switch, state):
+        def on_finished():
+            set_power_profile_overdrive(self.display_enabled)
+
+        def thread_runner():
+            try:
+                if state:
+                    self.start_display_services()
+                else:
+                    self.stop_display_services()
+            finally:
+                on_finished()
+
         if state:
             self.show_progress_dialog("Starting display services...")
-            thread = threading.Thread(target=self.start_display_services, daemon=True)
-            thread.start()
         else:
             self.show_progress_dialog("Stopping display services...")
-            thread = threading.Thread(target=self.stop_display_services, daemon=True)
-            thread.start()
+
+        threading.Thread(target=thread_runner, daemon=True).start()
         return False
 
     def update_display_ui_state(self, enabled):
