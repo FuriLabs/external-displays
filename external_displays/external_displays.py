@@ -756,6 +756,7 @@ class ExternalDisplays(Adw.Application):
                         print(f"Error removing enable file after failure: {e}")
                 GLib.idle_add(lambda: self.display_services_switch.set_active(False))
                 self.display_enabled = False
+                self.inputs_expander.set_expanded(False)
 
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
         except Exception as e:
@@ -767,6 +768,7 @@ class ExternalDisplays(Adw.Application):
             self.set_gnome_wm_preference("appmenu:")
 
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+            self.inputs_expander.set_expanded(False)
 
         return False
 
@@ -795,13 +797,13 @@ class ExternalDisplays(Adw.Application):
 
             GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services stopped successfully")
             GLib.idle_add(self.update_display_ui_state, False)
-            GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
-            self.display_enabled = False
         except Exception as e:
             print(f"Unexpected error in stop_display_services: {e}")
             GLib.idle_add(ui.create_toast, self.toast_overlay, f"Error stopping display services: {e}")
-            GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
-            self.display_enabled = False
+
+        GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+        self.inputs_expander.set_expanded(False)
+        self.display_enabled = False
 
         return False
 
