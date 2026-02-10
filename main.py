@@ -7,11 +7,8 @@
 # Jesús Higueras <jesus@furilabs.com>
 
 import gi
-import os
 
-import sys
 import time
-import subprocess
 from asyncio import run, sleep
 from gi.repository import GLib, Gio
 from external_displays import ExternalDisplays
