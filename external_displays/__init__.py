@@ -7,9 +7,11 @@
 from .external_displays import ExternalDisplays
 from .keyboard_emulator import KeyboardEmulator
 from .touch_mouse_emulator import TouchMouseEmulator
+from .input_redirector import InputRedirector
 
 __all__ = [
     'ExternalDisplays',
     'KeyboardEmulator',
     'TouchMouseEmulator',
+    'InputRedirector',
 ]

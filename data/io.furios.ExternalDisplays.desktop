@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=External Displays
-Exec=env DISPLAY=:1 io.furios.ExternalDisplays
+Exec=io.furios.ExternalDisplays
 Icon=io.furios.ExternalDisplays
 Terminal=false
 Type=Application

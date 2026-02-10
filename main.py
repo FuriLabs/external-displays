@@ -9,9 +9,6 @@
 import gi
 import os
 
-# We set DISPLAY to make xdotool and xrandr work for display management, but always show the app in Wayland Phosh
-os.environ['GDK_BACKEND'] = 'wayland'
-
 import sys
 import time
 import subprocess
@@ -19,24 +16,8 @@ from asyncio import run, sleep
 from gi.repository import GLib, Gio
 from external_displays import ExternalDisplays
 
-def check_dependencies():
-    try:
-        subprocess.run(["which", "xdotool"], check=True, stdout=subprocess.PIPE)
-    except subprocess.CalledProcessError:
-        print("Error: xdotool is not installed")
-        sys.exit(1)
-
 async def pump_gtk_events():
     main_context = GLib.MainContext.default()
-
-    if len(sys.argv) > 1:
-        os.environ['DISPLAY'] = sys.argv[1]
-        print(f"Overriding DISPLAY with: {sys.argv[1]}")
-    elif 'DISPLAY' not in os.environ:
-        os.environ['DISPLAY'] = ':1'
-        print("DISPLAY not set, defaulting to :1")
-
-    check_dependencies()
 
     app = ExternalDisplays(application_id="io.furios.ExternalDisplays")
     app.connect('shutdown', lambda _: exit(0))

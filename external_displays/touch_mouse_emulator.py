@@ -5,15 +5,23 @@
 # Bardia Moshiri <bardia@furilabs.com>
 
 import gi
-gi.require_version('Gtk', '4.0')
+gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
-import subprocess
 import time
+
+from external_displays.input_redirector import InputRedirector
+
+# Linux input event codes
+BTN_LEFT = 272
+BTN_RIGHT = 273
 
 class TouchMouseEmulator:
     def __init__(self, drawing_area, app):
         self.drawing_area = drawing_area
         self.app = app
+
+        # Input redirector
+        self.input_redirector = InputRedirector(source="app:external-displays")
 
         self.sensitivity = 4.0
 
@@ -49,12 +57,6 @@ class TouchMouseEmulator:
         self.touch_controller.connect("scale-changed", self.on_zoom_scale_changed)
         self.drawing_area.add_controller(self.touch_controller)
 
-        # Motion controller for mouse movement
-        self.motion_controller = Gtk.EventControllerMotion.new()
-        self.drawing_area.add_controller(self.motion_controller)
-
-        self.mouse_start_x = 0
-        self.mouse_start_y = 0
         self.is_dragging = False
         self.drag_start_pos = None
         self.last_touch_time = 0
@@ -62,11 +64,14 @@ class TouchMouseEmulator:
         self.active_touches = {}
         self.last_scale = 1.0
 
-        # Add a cumulative movement tracker for drag detection
+        # Cumulative movement tracker for drag detection
         self.total_movement = 0.0
 
+        # Track last positions for delta calculation
+        self.last_x = 0
+        self.last_y = 0
+
     def on_draw(self, area, cr, width, height):
-        """Draw the touch area with guides"""
         # Draw background
         cr.set_source_rgb(0.9, 0.9, 0.9)
         cr.rectangle(0, 0, width, height)
@@ -77,13 +82,15 @@ class TouchMouseEmulator:
         cr.set_line_width(1)
 
         # Vertical lines
-        for x in range(0, width, width // 10):
+        step_x = max(1, width // 10)
+        for x in range(0, width, step_x):
             cr.move_to(x, 0)
             cr.line_to(x, height)
             cr.stroke()
 
         # Horizontal lines
-        for y in range(0, height, height // 10):
+        step_y = max(1, height // 10)
+        for y in range(0, height, step_y):
             cr.move_to(0, y)
             cr.line_to(width, y)
             cr.stroke()
@@ -98,7 +105,7 @@ class TouchMouseEmulator:
         cr.line_to(width / 2, height / 2 + 20)
         cr.stroke()
 
-        # Draw touch indicator (should be removed after everything works)
+        # Draw touch indicator
         if self.touch_active:
             cr.set_source_rgb(1.0, 0.0, 0.0)
             cr.arc(self.touch_x, self.touch_y, 10, 0, 2 * 3.14159)
@@ -106,10 +113,18 @@ class TouchMouseEmulator:
 
         return False
 
+    def tap_button(self, btn_code):
+        self.input_redirector.mouse_button(btn_code, 1)
+        self.input_redirector.mouse_button(btn_code, 0)
+
+    def scroll_step(self, direction):
+        val = 1 if direction == "down" else -1
+        self.input_redirector.scroll(self.REL_WHEEL, val)
+
     def on_press(self, gesture, n_press, x, y):
         button = gesture.get_current_button()
 
-        # Set touch indicator
+        # Touch indicator
         self.touch_active = True
         self.touch_x = x
         self.touch_y = y
@@ -119,31 +134,28 @@ class TouchMouseEmulator:
         self.has_moved_threshold = False
         self.total_movement = 0.0
 
-        # Handle mouse button press events
-        if button == 1:  # Left button
-            # Get current mouse position on target display
-            mouse_pos = self.get_current_mouse_position()
-            self.mouse_start_x = mouse_pos[0]
-            self.mouse_start_y = mouse_pos[1]
+        # Store drag starting reference
+        self.drag_start_pos = (x, y)
+        self.last_x = x
+        self.last_y = y
 
-            # Check for double click
+        # Handle mouse button press events
+        if button == 1:  # Left
             current_time = time.time()
             if n_press == 2:
-                subprocess.run("xdotool click --repeat 2 1", shell=True)
+                # Double click
+                self.tap_button(BTN_LEFT)
+                self.tap_button(BTN_LEFT)
                 self.last_touch_time = 0
             else:
                 self.last_touch_time = current_time
-                self.drag_start_pos = (x, y)
 
-                self.last_x = x
-                self.last_y = y
-
-                # Start timer for drag and drop (but don't perform click here)
+                # Start timer for drag and drop
                 if self.touch_hold_timer:
                     GLib.source_remove(self.touch_hold_timer)
                 self.touch_hold_timer = GLib.timeout_add(300, self.on_touch_hold)
-        elif button == 3:  # Right button
-            subprocess.run("xdotool click 3", shell=True)
+        elif button == 3:  # Right
+            self.tap_button(BTN_RIGHT)
 
     def on_release(self, gesture, n_press, x, y):
         button = gesture.get_current_button()
@@ -164,10 +176,10 @@ class TouchMouseEmulator:
             # 3. We're not in gesture drag mode
             if not self.has_moved_threshold and not self.is_dragging and not self.is_gesture_dragging:
                 # Simple click
-                subprocess.run("xdotool click 1", shell=True)
-            # End drag if we were dragging
+                self.tap_button(BTN_LEFT)
             elif self.is_dragging:
-                subprocess.run("xdotool mouseup 1", shell=True)
+                # End drag if we were dragging
+                self.input_redirector.mouse_button(BTN_LEFT, 0)
                 self.is_dragging = False
 
         # Clean up state
@@ -178,11 +190,10 @@ class TouchMouseEmulator:
         self.total_movement = 0.0
 
     def on_touch_hold(self):
-        """Called when touch is held long enough for drag"""
         # Only start drag if we haven't moved much (to prevent accidental drags)
         if not self.has_moved_threshold:
             # Start drag operation where the cursor currently is
-            subprocess.run("xdotool mousedown 1", shell=True)
+            self.input_redirector.mouse_button(BTN_LEFT, 1)
             self.is_dragging = True
 
         self.touch_hold_timer = None
@@ -206,67 +217,61 @@ class TouchMouseEmulator:
 
         self.drawing_area.queue_draw()
 
-        # Cancel the hold timer if it's active
+        # Cancel hold timer if active
         if self.touch_hold_timer:
             GLib.source_remove(self.touch_hold_timer)
             self.touch_hold_timer = None
 
     def on_drag_update(self, gesture, offset_x, offset_y):
-        if self.drag_start_pos:
-            # Get current position from start position and offset
-            start_x, start_y = self.drag_start_pos
-            current_x = start_x + offset_x
-            current_y = start_y + offset_y
+        if not self.drag_start_pos:
+            return
 
-            self.touch_x = current_x
-            self.touch_y = current_y
+        # Get current position from start position and offset
+        start_x, start_y = self.drag_start_pos
+        current_x = start_x + offset_x
+        current_y = start_y + offset_y
 
-            # Calculate the delta movement since last update
-            if hasattr(self, 'last_x') and hasattr(self, 'last_y'):
-                delta_x = current_x - self.last_x
-                delta_y = current_y - self.last_y
-            else:
-                delta_x = offset_x
-                delta_y = offset_y
+        self.touch_x = current_x
+        self.touch_y = current_y
 
-            # Calculate the total movement
-            total_offset = (offset_x**2 + offset_y**2)**0.5
-            self.total_movement += total_offset
+        # Delta since last update
+        delta_x = current_x - self.last_x
+        delta_y = current_y - self.last_y
 
-            # If we've moved enough, mark as a movement, not a tap
-            if self.total_movement > self.movement_threshold and not self.has_moved_threshold:
-                self.has_moved_threshold = True
+        # Calculate the Total movement
+        total_offset = (offset_x ** 2 + offset_y ** 2) ** 0.5
+        self.total_movement += total_offset
 
-                # Cancel the hold timer if we're moving
-                if self.touch_hold_timer:
-                    GLib.source_remove(self.touch_hold_timer)
-                    self.touch_hold_timer = None
+        # If we've moved enough, mark as a movement, not a tap
+        if self.total_movement > self.movement_threshold and not self.has_moved_threshold:
+            self.has_moved_threshold = True
 
-            self.last_x = current_x
-            self.last_y = current_y
+            # Cancel hold timer if we start moving
+            if self.touch_hold_timer:
+                GLib.source_remove(self.touch_hold_timer)
+                self.touch_hold_timer = None
 
-            # Scale the delta movement
-            scaled_delta_x = self.scale_delta_x(delta_x, 0)
-            scaled_delta_y = self.scale_delta_y(delta_y, 0)
+        self.last_x = current_x
+        self.last_y = current_y
 
-            # Skip very small movements
-            if abs(scaled_delta_x) < 1 and abs(scaled_delta_y) < 1:
-                return
+        # Scale deltas
+        scaled_dx = self.scale_delta_x(delta_x, 0)
+        scaled_dy = self.scale_delta_y(delta_y, 0)
 
-            # If dragging with button held, move mouse relatively
-            if self.is_dragging:
-                self.execute_command(f"xdotool mousemove_relative -- {scaled_delta_x} {scaled_delta_y}")
-            # Regular mouse movement (not dragging)
-            else:
-                self.execute_command(f"xdotool mousemove_relative -- {scaled_delta_x} {scaled_delta_y}")
-            self.drawing_area.queue_draw()
+        if abs(scaled_dx) < 1 and abs(scaled_dy) < 1:
+            return
+
+        # Move cursor relatively
+        self.input_redirector.mouse_motion(scaled_dx, scaled_dy)
+
+        self.drawing_area.queue_draw()
 
     def on_drag_end(self, gesture, offset_x, offset_y):
         self.touch_active = False
         self.drawing_area.queue_draw()
 
         # Calculate total movement distance
-        total_distance = (offset_x**2 + offset_y**2)**0.5
+        total_distance = (offset_x ** 2 + offset_y ** 2) ** 0.5
 
         # Mark as moved if distance is significant (ensure click doesn't happen after drag)
         if total_distance > self.movement_threshold / 2:
@@ -274,7 +279,7 @@ class TouchMouseEmulator:
 
         # If this was a drag operation, clean up
         if self.is_dragging:
-            self.execute_command("xdotool mouseup 1")
+            self.input_redirector.mouse_button(BTN_LEFT, 0)
             self.is_dragging = False
 
         # Reset this gesture state
@@ -289,20 +294,19 @@ class TouchMouseEmulator:
         # Handle zoom gestures (for scrolling)
         delta_scale = scale - self.last_scale
 
-        if abs(delta_scale) > 0.05:  # Threshold to avoid jitter
-            scroll_direction = 'down' if delta_scale < 0 else 'up'
+        if abs(delta_scale) > 0.05: # Threshold to avoid jitter
+            scroll_direction = "down" if delta_scale < 0 else "up"
             scroll_amount = min(abs(int(delta_scale * 10)), 5)
 
-            if scroll_amount > 0:
-                self.execute_command(f"xdotool click --repeat {scroll_amount} {4 if scroll_direction == 'down' else 5}")
+            for _ in range(scroll_amount):
+                self.scroll_step(scroll_direction)
+
             self.last_scale = scale
 
     def scale_delta_x(self, delta_x, width):
-        """Scale x delta movement from the drawing area to the target display"""
         if delta_x == 0:
             return 0
 
-        # Claude seems to think this is a good idea
         scaled = delta_x * self.sensitivity
 
         if abs(scaled) > 50:
@@ -311,8 +315,6 @@ class TouchMouseEmulator:
         return int(scaled)
 
     def scale_delta_y(self, delta_y, height):
-        """Scale y delta movement from the drawing area to the target display"""
-
         if delta_y == 0:
             return 0
 
@@ -323,25 +325,7 @@ class TouchMouseEmulator:
 
         return int(scaled)
 
-    def get_current_mouse_position(self):
-        """Get current mouse position on target display"""
-        try:
-            # Get mouse position using the current display setting
-            result = subprocess.run(['xdotool', 'getmouselocation'], capture_output=True, text=True)
-
-            # Parse position
-            # Output format: x:123 y:456 screen:0 window:12345
-            parts = result.stdout.split()
-            x = int(parts[0].split(':')[1])
-            y = int(parts[1].split(':')[1])
-
-            return (x, y)
-        except Exception as e:
-            print(f"Error getting mouse position: {str(e)}")
-            return (0, 0)
-
     def clear_touch_state(self):
-        """Reset all touch tracking state"""
         self.active_touches = {}
 
         if self.touch_hold_timer:
@@ -349,13 +333,5 @@ class TouchMouseEmulator:
             self.touch_hold_timer = None
 
         if self.is_dragging:
-            self.execute_command("xdotool mouseup 1")
+            self.input_redirector.mouse_button(BTN_LEFT, 0)
             self.is_dragging = False
-
-    def execute_command(self, command):
-        """Execute an xdotool command on the target display"""
-        try:
-            subprocess.Popen(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            print(f"Command error: {str(e)}")
-            self.clear_touch_state()
