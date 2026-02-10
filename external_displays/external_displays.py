@@ -98,6 +98,9 @@ class ExternalDisplays(Adw.Application):
         # Progress dialog
         self.progress_dialog = None
 
+        # Display service status
+        self.display_enabled = False
+
     def set_gnome_wm_preference(self, value):
         try:
             settings = Gio.Settings.new("org.gnome.desktop.wm.preferences")
@@ -186,30 +189,30 @@ class ExternalDisplays(Adw.Application):
         self.status_label = ui.create_status_label()
         self.input_page.append(self.status_label)
 
-        # Build pages
-        self.create_main_content()
-        self.create_settings_content()
-        self.create_config_page()
-
         # Sync enable file with services state
         displaylink_active = check_service_status("displaylink-driver.service", system_bus=True)
         externaldisplay_active = check_service_status("externaldisplay.service", system_bus=False)
-        services_enabled = displaylink_active and externaldisplay_active
+        self.display_enabled = displaylink_active and externaldisplay_active
 
-        if services_enabled and not os.path.exists(self.enable_file_path):
+        if self.display_enabled and not os.path.exists(self.enable_file_path):
             try:
                 open(self.enable_file_path, "a").close()
             except Exception as e:
                 print(f"Error creating enable file at startup: {e}")
-        elif not services_enabled and os.path.exists(self.enable_file_path):
+        elif not self.display_enabled and os.path.exists(self.enable_file_path):
             try:
                 os.remove(self.enable_file_path)
             except Exception as e:
                 print(f"Error removing enable file at startup: {e}")
 
-        self.update_display_ui_state(services_enabled)
+        # Build pages
+        self.create_main_content()
+        self.create_settings_content()
+        self.create_config_page()
 
-        if services_enabled:
+        self.update_display_ui_state(self.display_enabled)
+
+        if self.display_enabled:
             self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
 
         # Regain focus periodically (this is a hack)
@@ -310,6 +313,9 @@ class ExternalDisplays(Adw.Application):
             self.input_device_rows.append(error_row)
 
     def update_display_info(self):
+        if not self.display_enabled:
+            return None
+
         if not self.display_info_labels:
             return None
 
@@ -476,12 +482,8 @@ class ExternalDisplays(Adw.Application):
         # Create the switch
         self.display_services_switch = ui.create_switch()
 
-        # Check initial state of services
-        displaylink_active = check_service_status("displaylink-driver.service", system_bus=True)
-        externaldisplay_active = check_service_status("externaldisplay.service", system_bus=False)
-
         # Set initial state of switch
-        self.display_services_switch.set_active(displaylink_active and externaldisplay_active)
+        self.display_services_switch.set_active(self.display_enabled)
 
         # Connect signal
         self.display_services_switch.connect("state-set", self.on_display_services_toggled)
@@ -742,6 +744,7 @@ class ExternalDisplays(Adw.Application):
             if success:
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services enabled successfully")
                 GLib.idle_add(self.update_display_ui_state, True)
+                self.display_enabled = True
             else:
                 # Restore if we failed
                 self.set_gnome_wm_preference("appmenu:")
@@ -752,12 +755,14 @@ class ExternalDisplays(Adw.Application):
                     except Exception as e:
                         print(f"Error removing enable file after failure: {e}")
                 GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+                self.display_enabled = False
 
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
         except Exception as e:
             print(f"Unexpected error in start_display_services: {e}")
             GLib.idle_add(ui.create_toast, self.toast_overlay, f"Error enabling display services: {e}")
             GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+            self.display_enabled = False
 
             self.set_gnome_wm_preference("appmenu:")
 
@@ -791,10 +796,12 @@ class ExternalDisplays(Adw.Application):
             GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services stopped successfully")
             GLib.idle_add(self.update_display_ui_state, False)
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+            self.display_enabled = False
         except Exception as e:
             print(f"Unexpected error in stop_display_services: {e}")
             GLib.idle_add(ui.create_toast, self.toast_overlay, f"Error stopping display services: {e}")
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+            self.display_enabled = False
 
         return False
 
