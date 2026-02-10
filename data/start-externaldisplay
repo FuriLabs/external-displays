@@ -37,8 +37,10 @@ if [ -x /usr/libexec/mutter-memfd-streamer ]; then
 
     XDG_SESSION_TYPE=wayland
     GNOME_SHELL_SKIP_DBUS=1
+    GNOME_SHELL_WAYLAND_SOCKET=wayland-1
     export XDG_SESSION_TYPE
     export GNOME_SHELL_SKIP_DBUS
+    export GNOME_SHELL_WAYLAND_SOCKET
 
     echo "Starting mutter DRM streamer"
     /usr/libexec/mutter-memfd-streamer &
