@@ -11,8 +11,6 @@ import glob
 import gi
 from gi.repository import Gio, GLib
 
-from Xlib import display as xdisplay
-
 from external_displays.edid import get_display_info
 
 def get_systemd_bus(system_bus=False):
@@ -167,48 +165,6 @@ def get_sysfs_event_name(by_id_name, real_path):
         return f"{base_label} (if{interface_number})"
 
     return base_label
-
-def get_display_modes(card_path, connector):
-    modes_path = f"/sys/class/drm/{card_path}/{card_path}-{connector}/modes"
-    if os.path.exists(modes_path):
-        try:
-            with open(modes_path, "r") as f:
-                modes = [line.strip() for line in f.readlines()]
-            # Deduplicate the list
-            unique_modes = []
-            for mode in modes:
-                if mode not in unique_modes:
-                    unique_modes.append(mode)
-            return unique_modes
-        except Exception as e:
-            print(f"Error reading modes: {e}")
-    return []
-
-def get_current_resolution(connector, target_display=None):
-    try:
-        d = xdisplay.Display(target_display or os.environ.get("DISPLAY"))
-        screen = d.screen()
-        root = screen.root
-
-        if not hasattr(d, "randr_version"):
-            return f"{screen.width_in_pixels}x{screen.height_in_pixels}"
-
-        resources = root.xrandr_get_screen_resources()
-
-        for output in resources.outputs:
-            output_info = d.xrandr_get_output_info(output, resources.config_timestamp)
-            if output_info.connection != 0:  # 0 is Connected
-                continue
-
-            output_name = output_info.name
-            if connector in output_name and output_info.crtc:
-                crtc_info = d.xrandr_get_crtc_info(output_info.crtc, resources.config_timestamp)
-                return f"{crtc_info.width}x{crtc_info.height}"
-
-        return None
-    except Exception as e:
-        print(f"Error getting current resolution with Xlib: {e}")
-        return None
 
 def set_gnome_wm_preference(value):
     try:

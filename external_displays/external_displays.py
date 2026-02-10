@@ -25,8 +25,6 @@ from external_displays.utils import (
     detect_connector,
     set_gnome_wm_preference,
     get_sysfs_event_name,
-    get_display_modes,
-    get_current_resolution,
     set_input_redirector_display,
     set_input_redirector_input_paths,
     get_input_redirector_input_paths,
@@ -49,10 +47,6 @@ class ExternalDisplays(Adw.Application):
         # Input device management
         self.input_device_buttons = []
         self.input_device_rows = []
-
-        # Display mode management
-        self.mode_radio_buttons = {}
-        self.mode_radio_handlers = {}
 
         # Flag to track if focus regain is active
         self.focus_regain_active = False
@@ -87,7 +81,6 @@ class ExternalDisplays(Adw.Application):
         self.display_info_labels = {}
 
         # Expander rows
-        self.modes_expander = None
         self.inputs_expander = None
 
         # Emulators
@@ -273,21 +266,6 @@ class ExternalDisplays(Adw.Application):
             if key in self.display_info_labels:
                 self.display_info_labels[key].set_text(value)
 
-        current_resolution = get_current_resolution(self.connector, self.target_display)
-        if current_resolution and current_resolution in self.mode_radio_buttons:
-            # Only update if the current active button isn't already set to the current resolution
-            button = self.mode_radio_buttons[current_resolution]
-            if not button.get_active():
-                # Temporarily block signal handlers
-                if current_resolution in self.mode_radio_handlers:
-                    handler_id = self.mode_radio_handlers[current_resolution]
-                    button.handler_block(handler_id)
-                    button.set_active(True)
-                    button.handler_unblock(handler_id)
-                else:
-                    # If we don't have the handler ID for some reason, just set it active
-                    button.set_active(True)
-
         return display_info
 
     def on_refresh_clicked(self, _button):
@@ -348,19 +326,6 @@ class ExternalDisplays(Adw.Application):
         self.input_page.append(frame)
 
         self.touch_mouse_emulator = TouchMouseEmulator(self.drawing_area, self)
-
-    def apply_display_mode(self, mode):
-        try:
-            subprocess.run(["xrandr", "--output", self.connector, "--mode", mode], check=True)
-            ui.create_toast(self.toast_overlay, f"Display mode changed to {mode}")
-            return True
-        except Exception as e:
-            ui.create_toast(self.toast_overlay, f"Failed to change mode: {e}")
-            return False
-
-    def on_mode_selected(self, button, mode):
-        if button.get_active():
-            self.apply_display_mode(mode)
 
     def create_config_page(self):
         # Add key controller to the config page as well
@@ -434,52 +399,6 @@ class ExternalDisplays(Adw.Application):
             "manufacturer": self.mfg_value,
         }
 
-        # Display modes section with expander
-        modes_group = ui.create_preferences_group("Display Modes")
-
-        self.modes_expander = ui.create_expander_row(
-            "Available Resolutions",
-            "Click to select a display mode",
-        )
-
-        modes = get_display_modes(self.card_path, self.connector)
-        radio_group = None
-        current_resolution = None
-        if modes:
-            current_resolution = get_current_resolution(self.connector, self.target_display)
-        else:
-            no_modes_row = ui.create_action_row("No display modes available")
-            self.modes_expander.add_row(no_modes_row)
-
-        self.mode_radio_buttons.clear()
-        self.mode_radio_handlers.clear()
-
-        for mode in modes:
-            mode_row = ui.create_action_row(mode)
-
-            radio_button = Gtk.CheckButton()
-            if radio_group is None:
-                radio_group = radio_button
-            else:
-                radio_button.set_group(radio_group)
-
-            self.mode_radio_buttons[mode] = radio_button
-
-            if current_resolution and mode == current_resolution:
-                radio_button.set_active(True)
-
-            handler_id = radio_button.connect("toggled", self.on_mode_selected, mode)
-            self.mode_radio_handlers[mode] = handler_id
-
-            mode_row.add_prefix(radio_button)
-            self.modes_expander.add_row(mode_row)
-
-        modes_group.add(self.modes_expander)
-        preferences_page.add(modes_group)
-
-        # Hide display modes for now
-        modes_group.set_visible(False)
-
         # Input devices section
         inputs_group = ui.create_preferences_group("Inputs")
 
@@ -516,21 +435,19 @@ class ExternalDisplays(Adw.Application):
         return False
 
     def update_display_ui_state(self, enabled):
-        if not self.display_info_labels or self.modes_expander is None:
+        if not self.display_info_labels:
             return
 
         if enabled:
             if self.refresh_timeout_id is None:
                 self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
 
-            self.modes_expander.set_sensitive(True)
             self.inputs_expander.set_sensitive(True)
             self.refresh_display_info()
         else:
             for _key, label in self.display_info_labels.items():
                 label.set_text("")
 
-            self.modes_expander.set_sensitive(False)
             self.inputs_expander.set_sensitive(False)
 
             if self.refresh_timeout_id is not None:
