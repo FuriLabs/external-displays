@@ -6,6 +6,7 @@
 
 import gi
 import os
+import re
 import glob
 import threading
 import subprocess
@@ -237,14 +238,12 @@ class ExternalDisplays(Adw.Application):
 
         base_label = name or by_id_name
 
-        hint = None
-        if "-if01" in by_id_name:
-            hint = "if01"
-        elif "-if02" in by_id_name:
-            hint = "if02"
+        match = re.search(r"-if(\d+)", by_id_name)
 
-        if hint:
-            return f"{base_label} ({hint})"
+        if match:
+            interface_number = match.group(1)
+            return f"{base_label} (if{interface_number})"
+
         return base_label
 
     def load_input_devices(self):
