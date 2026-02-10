@@ -6,16 +6,12 @@
 
 import gi
 import os
-import re
-import glob
 import threading
 import subprocess
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw, Gio
-
-from Xlib import display
 
 from external_displays.edid import get_display_info
 from external_displays.keyboard_emulator import KeyboardEmulator
@@ -26,6 +22,14 @@ from external_displays.utils import (
     stop_service,
     wait_for_file,
     wait_for_display_connected,
+    detect_connector,
+    set_gnome_wm_preference,
+    get_sysfs_event_name,
+    get_display_modes,
+    get_current_resolution,
+    set_input_redirector_display,
+    set_input_redirector_input_paths,
+    get_input_redirector_input_paths,
 )
 
 from external_displays import ui
@@ -38,7 +42,7 @@ class ExternalDisplays(Adw.Application):
         # Display and hardware configuration
         self.target_display = os.environ.get("DISPLAY", ":1")
         self.card_path = "card1"
-        self.connector = self.detect_connector()
+        self.connector = detect_connector(self.card_path)
         self.enable_file_path = os.path.expanduser("~/.enable_external_display")
 
         # Input device management
@@ -101,34 +105,6 @@ class ExternalDisplays(Adw.Application):
 
         # Display service status
         self.display_enabled = False
-
-    def set_gnome_wm_preference(self, value):
-        try:
-            settings = Gio.Settings.new("org.gnome.desktop.wm.preferences")
-            settings.set_string("button-layout", value)
-            return True
-        except Exception as e:
-            print(f"Failed to set gsettings org.gnome.desktop.wm.preferences button-layout='{value}': {e}")
-            return False
-
-    def detect_connector(self):
-        default_connector = "DVI-I-1"
-        default_path = f"/sys/class/drm/{self.card_path}/{self.card_path}-{default_connector}"
-
-        if os.path.exists(default_path):
-            return default_connector
-
-        pattern = f"/sys/class/drm/{self.card_path}/{self.card_path}-DVI-I-*"
-        matching_paths = glob.glob(pattern)
-
-        if matching_paths:
-            basename = os.path.basename(matching_paths[0])
-            connector = basename.split("-", 1)[1]
-            print(f"Default connector not found. Using: {connector}")
-            return connector
-
-        print(f"No DVI-I connectors found. Falling back to default: {default_connector}")
-        return default_connector
 
     def on_activate(self, app):
         self.win = Adw.ApplicationWindow(application=app)
@@ -225,27 +201,6 @@ class ExternalDisplays(Adw.Application):
 
         self.win.present()
 
-    def get_sysfs_event_name(self, by_id_name, real_path):
-        name = None
-        try:
-            base = os.path.basename(real_path)
-            name_path = f"/sys/class/input/{base}/device/name"
-            if os.path.exists(name_path):
-                with open(name_path, "r", encoding="utf-8", errors="ignore") as f:
-                    name = f.read().strip()
-        except Exception as e:
-            print(f"Error reading sysfs name for {real_path}: {e}")
-
-        base_label = name or by_id_name
-
-        match = re.search(r"-if(\d+)", by_id_name)
-
-        if match:
-            interface_number = match.group(1)
-            return f"{base_label} (if{interface_number})"
-
-        return base_label
-
     def load_input_devices(self):
         if not hasattr(self, "inputs_expander") or self.inputs_expander is None:
             return
@@ -255,13 +210,7 @@ class ExternalDisplays(Adw.Application):
             self.inputs_expander.remove(row)
         self.input_device_rows.clear()
 
-        try:
-            settings = Gio.Settings.new("io.furios.input-redirector")
-            current_paths = settings.get_string("input-paths")
-            selected_paths = set(current_paths.split(",")) if current_paths else set()
-        except Exception as e:
-            print(f"Error reading input paths from gsettings: {e}")
-            selected_paths = set()
+        selected_paths = get_input_redirector_input_paths()
 
         self.input_device_buttons = []
 
@@ -285,7 +234,7 @@ class ExternalDisplays(Adw.Application):
                         try:
                             real_path = os.path.realpath(device_path)
 
-                            friendly = self.get_sysfs_event_name(device, real_path)
+                            friendly = get_sysfs_event_name(device, real_path)
 
                             device_row = ui.create_action_row(friendly, real_path)
 
@@ -323,7 +272,7 @@ class ExternalDisplays(Adw.Application):
             if key in self.display_info_labels:
                 self.display_info_labels[key].set_text(value)
 
-        current_resolution = self.get_current_resolution()
+        current_resolution = get_current_resolution(self.connector, self.target_display)
         if current_resolution and current_resolution in self.mode_radio_buttons:
             # Only update if the current active button isn't already set to the current resolution
             button = self.mode_radio_buttons[current_resolution]
@@ -398,48 +347,6 @@ class ExternalDisplays(Adw.Application):
         self.input_page.append(frame)
 
         self.touch_mouse_emulator = TouchMouseEmulator(self.drawing_area, self)
-
-    def get_display_modes(self):
-        modes_path = f"/sys/class/drm/{self.card_path}/{self.card_path}-{self.connector}/modes"
-        if os.path.exists(modes_path):
-            try:
-                with open(modes_path, "r") as f:
-                    modes = [line.strip() for line in f.readlines()]
-                # Deduplicate the list
-                unique_modes = []
-                for mode in modes:
-                    if mode not in unique_modes:
-                        unique_modes.append(mode)
-                return unique_modes
-            except Exception as e:
-                print(f"Error reading modes: {e}")
-        return []
-
-    def get_current_resolution(self):
-        try:
-            d = display.Display()
-            screen = d.screen()
-            root = screen.root
-
-            if not hasattr(d, "randr_version"):
-                return f"{screen.width_in_pixels}x{screen.height_in_pixels}"
-
-            resources = root.xrandr_get_screen_resources()
-
-            for output in resources.outputs:
-                output_info = d.xrandr_get_output_info(output, resources.config_timestamp)
-                if output_info.connection != 0:  # 0 is Connected
-                    continue
-
-                output_name = output_info.name
-                if self.connector in output_name and output_info.crtc:
-                    crtc_info = d.xrandr_get_crtc_info(output_info.crtc, resources.config_timestamp)
-                    return f"{crtc_info.width}x{crtc_info.height}"
-
-            return None
-        except Exception as e:
-            print(f"Error getting current resolution with Xlib: {e}")
-            return None
 
     def apply_display_mode(self, mode):
         try:
@@ -534,11 +441,11 @@ class ExternalDisplays(Adw.Application):
             "Click to select a display mode",
         )
 
-        modes = self.get_display_modes()
+        modes = get_display_modes(self.card_path, self.connector)
         radio_group = None
         current_resolution = None
         if modes:
-            current_resolution = self.get_current_resolution()
+            current_resolution = get_current_resolution(self.connector, self.target_display)
         else:
             no_modes_row = ui.create_action_row("No display modes available")
             self.modes_expander.add_row(no_modes_row)
@@ -656,7 +563,7 @@ class ExternalDisplays(Adw.Application):
         if entry_text and entry_text != self.target_display:
             self.target_display = entry_text
             os.environ["DISPLAY"] = self.target_display
-            self.set_input_redirector_display()
+            set_input_redirector_display(self.target_display)
             self.touch_mouse_emulator.update_target_dimensions()
 
         # Connector / card path
@@ -686,26 +593,13 @@ class ExternalDisplays(Adw.Application):
     def on_input_device_toggled(self, _button):
         paths = [real for btn, real in self.input_device_buttons if btn.get_active()]
         val = ",".join(paths)
-        settings = Gio.Settings.new("io.furios.input-redirector")
-        settings.set_string("input-paths", val)
-
-    def set_input_redirector_display(self):
-        schema = "io.furios.input-redirector"
-        key = "display"
-        try:
-            source = Gio.SettingsSchemaSource.get_default()
-            if not source or not source.lookup(schema, False):
-                return
-            settings = Gio.Settings.new(schema)
-            settings.set_string(key, self.target_display)
-        except Exception as e:
-            print(f"Failed to set input redirector display: {e}")
+        set_input_redirector_input_paths(val)
 
     def start_display_services(self):
         try:
             success = True
 
-            self.set_input_redirector_display()
+            set_input_redirector_display(self.target_display)
 
             try:
                 open(self.enable_file_path, "a").close()
@@ -738,7 +632,7 @@ class ExternalDisplays(Adw.Application):
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Failed to start input redirector")
                 success = False
 
-            self.set_gnome_wm_preference(":minimize,maximize,close")
+            set_gnome_wm_preference(":minimize,maximize,close")
 
             if success:
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services enabled successfully")
@@ -746,7 +640,7 @@ class ExternalDisplays(Adw.Application):
                 self.display_enabled = True
             else:
                 # Restore if we failed
-                self.set_gnome_wm_preference("appmenu:")
+                set_gnome_wm_preference("appmenu:")
 
                 if os.path.exists(self.enable_file_path):
                     try:
@@ -764,7 +658,7 @@ class ExternalDisplays(Adw.Application):
             GLib.idle_add(lambda: self.display_services_switch.set_active(False))
             self.display_enabled = False
 
-            self.set_gnome_wm_preference("appmenu:")
+            set_gnome_wm_preference("appmenu:")
 
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
             self.inputs_expander.set_expanded(False)
@@ -774,7 +668,7 @@ class ExternalDisplays(Adw.Application):
     def stop_display_services(self):
         try:
             # Restore original layout
-            self.set_gnome_wm_preference("appmenu:")
+            set_gnome_wm_preference("appmenu:")
 
             if os.path.exists(self.enable_file_path):
                 try:
@@ -787,12 +681,8 @@ class ExternalDisplays(Adw.Application):
             stop_service("input-redirector.service")
             stop_service("external-display-display-server.service", system_bus=True)
 
-            try:
-                settings = Gio.Settings.new("io.furios.input-redirector")
-                settings.set_string("input-paths", "")
-                print("Cleared input-redirector input-paths")
-            except Exception as e:
-                print(f"Error clearing input paths: {e}")
+            set_input_redirector_input_paths("")
+            print("Cleared input-redirector input-paths")
 
             GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services stopped successfully")
             GLib.idle_add(self.update_display_ui_state, False)
