@@ -32,8 +32,8 @@ kill_pair_and_cleanup() {
     cleanup
 }
 
-if [ -x /usr/libexec/mutter-memfd-streamer ]; then
-    echo "mutter-memfd-steamer found, using mutter wayland backend"
+if [ -x /usr/libexec/mutter-furios-screencast-streamer ]; then
+    echo "mutter-furios-screencast-streamer found, using mutter wayland backend"
 
     XDG_SESSION_TYPE=wayland
     GNOME_SHELL_SKIP_DBUS=1
@@ -45,18 +45,17 @@ if [ -x /usr/libexec/mutter-memfd-streamer ]; then
     export GNOME_SHELL_DISABLE_OSK
 
     echo "Starting mutter DRM streamer"
-    /usr/libexec/mutter-memfd-streamer &
-    MEMFD_PID=$!
+    /usr/libexec/mutter-furios-screencast-streamer &
+    STREAMER_PID=$!
 
     echo "Starting GNOME Shell with Wayland..."
     gnome-shell --no-x11 --wayland --nested &
     SHELL_PID=$!
 
-    wait -n "$MEMFD_PID" "$SHELL_PID"
+    wait -n "$STREAMER_PID" "$SHELL_PID"
     echo "One process exited. stopping both..."
 
-    kill_pair_and_cleanup "$MEMFD_PID" "$SHELL_PID"
-
+    kill_pair_and_cleanup "$STREAMER_PID" "$SHELL_PID"
 else
     echo "Setting X11 environment variables..."
     dbus-update-activation-environment --systemd DISPLAY=:1 XDG_SESSION_TYPE=x11 EGL_PLATFORM=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb
