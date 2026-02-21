@@ -21,6 +21,7 @@ Depends: ${misc:Depends},
          gir1.2-glib-2.0,
          python3-xkbcommon,
          input-redirector,
+         mutter-furios-screencast-streamer,
          external-displays-configs,
 Description: External Displays management application for FuriOS
 
