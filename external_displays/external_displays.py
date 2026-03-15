@@ -41,7 +41,6 @@ class ExternalDisplays(Adw.Application):
         # Display and hardware configuration
         self.target_display = os.environ.get("DISPLAY", ":1")
         self.card_path = "card1"
-        self.connector = detect_connector(self.card_path)
         self.enable_file_path = os.path.expanduser("~/.enable_external_display")
 
         # Input device management
@@ -66,9 +65,6 @@ class ExternalDisplays(Adw.Application):
 
         # Settings sheet
         self.sensitivity_slider = None
-        self.display_entry = None
-        self.connector_entry = None
-        self.card_entry = None
         self.apply_button = None
 
         # Switches and controls
@@ -261,7 +257,7 @@ class ExternalDisplays(Adw.Application):
         if not self.display_info_labels:
             return None
 
-        display_info = get_display_info(self.card_path, self.connector)
+        display_info = get_display_info(self.card_path, detect_connector(self.card_path))
         for key, value in display_info.items():
             if key in self.display_info_labels:
                 self.display_info_labels[key].set_text(value)
@@ -335,7 +331,7 @@ class ExternalDisplays(Adw.Application):
         self.config_page.add_controller(key_controller)
         self.config_page_key_controller = key_controller
 
-        display_info = get_display_info(self.card_path, self.connector)
+        display_info = get_display_info(self.card_path, detect_connector(self.card_path))
 
         # Scrolled window to make content scrollable
         scrolled = ui.create_scrolled_window()
@@ -465,15 +461,8 @@ class ExternalDisplays(Adw.Application):
         return False
 
     def create_settings_content(self):
-        content, sens, disp, conn, card, apply_button = ui.create_settings_sheet_content(
-            self.target_display,
-            self.connector,
-            self.card_path,
-        )
+        content, sens, apply_button = ui.create_settings_sheet_content()
         self.sensitivity_slider = sens
-        self.display_entry = disp
-        self.connector_entry = conn
-        self.card_entry = card
         self.apply_button = apply_button
 
         self.apply_button.connect("clicked", self.on_apply_settings)
@@ -485,36 +474,6 @@ class ExternalDisplays(Adw.Application):
             self.touch_mouse_emulator.sensitivity = float(self.sensitivity_slider.get_value())
         except Exception as e:
             print(f"Failed to update sensitivity: {e}")
-
-        # Display
-        entry_text = self.display_entry.get_text()
-        if entry_text and entry_text != self.target_display:
-            self.target_display = entry_text
-            os.environ["DISPLAY"] = self.target_display
-            set_input_redirector_display(self.target_display)
-            self.touch_mouse_emulator.update_target_dimensions()
-
-        # Connector / card path
-        connector_updated = False
-        card_updated = False
-
-        new_connector = self.connector_entry.get_text()
-        new_card = self.card_entry.get_text()
-
-        if new_connector and new_connector != self.connector:
-            self.connector = new_connector
-            connector_updated = True
-
-        if new_card and new_card != self.card_path:
-            self.card_path = new_card
-            card_updated = True
-
-        if connector_updated or card_updated:
-            # Clear config page and rebuild
-            for child in list(self.config_page.get_children()):
-                self.config_page.remove(child)
-            self.create_config_page()
-            self.refresh_display_info()
 
         self.bottom_sheet.set_open(False)
 
@@ -544,8 +503,8 @@ class ExternalDisplays(Adw.Application):
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Timeout waiting for display")
                 success = False
 
-            if success and not wait_for_display_connected(self.card_path, self.connector):
-                GLib.idle_add(ui.create_toast, self.toast_overlay, f"Timeout waiting for display connection at path {self.card_path} and connector {self.connector}")
+            if success and not wait_for_display_connected(self.card_path, detect_connector(self.card_path)):
+                GLib.idle_add(ui.create_toast, self.toast_overlay, f"Timeout waiting for display connection at path {self.card_path} and connector {detect_connector(self.card_path)}")
                 success = False
 
             if success and not start_service("external-display-display-server.service", system_bus=True):

@@ -177,11 +177,7 @@ def create_info_dialog(instructions: str) -> Adw.Dialog:
     dialog.set_child(content)
     return dialog
 
-def create_settings_sheet_content(
-    target_display: str,
-    connector: str,
-    card_path: str,
-) -> tuple[Gtk.Box, Gtk.Scale, Gtk.Entry, Gtk.Entry, Gtk.Entry, Gtk.Button]:
+def create_settings_sheet_content() -> tuple[Gtk.Box, Gtk.Scale, Gtk.Button]:
     content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
     content.set_margin_top(24)
     content.set_margin_bottom(24)
@@ -200,41 +196,11 @@ def create_settings_sheet_content(
     sensitivity_box.append(sensitivity_slider)
     content.append(sensitivity_box)
 
-    # Display selector
-    display_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-    display_label = Gtk.Label(label="Target Display")
-    display_entry = Gtk.Entry()
-    display_entry.set_text(target_display)
-    display_entry.set_hexpand(True)
-    display_box.append(display_label)
-    display_box.append(display_entry)
-    content.append(display_box)
-
-    # Connector settings
-    connector_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-    connector_label = Gtk.Label(label="Connector")
-    connector_entry = Gtk.Entry()
-    connector_entry.set_text(connector)
-    connector_entry.set_hexpand(True)
-    connector_box.append(connector_label)
-    connector_box.append(connector_entry)
-    content.append(connector_box)
-
-    # Card path settings
-    card_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-    card_label = Gtk.Label(label="Card Path")
-    card_entry = Gtk.Entry()
-    card_entry.set_text(card_path)
-    card_entry.set_hexpand(True)
-    card_box.append(card_label)
-    card_box.append(card_entry)
-    content.append(card_box)
-
     # Apply button
     apply_button = Gtk.Button(label="Apply Settings")
     content.append(apply_button)
 
-    return content, sensitivity_slider, display_entry, connector_entry, card_entry, apply_button
+    return content, sensitivity_slider, apply_button
 
 def create_toast(toast_overlay: Adw.ToastOverlay, message: str) -> None:
     print(message)
