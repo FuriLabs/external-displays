@@ -545,7 +545,7 @@ class ExternalDisplays(Adw.Application):
                 success = False
 
             if success and not wait_for_display_connected(self.card_path, self.connector):
-                GLib.idle_add(ui.create_toast, self.toast_overlay, "Timeout waiting for display connection")
+                GLib.idle_add(ui.create_toast, self.toast_overlay, f"Timeout waiting for display connection at path {self.card_path} and connector {self.connector}")
                 success = False
 
             if success and not start_service("external-display-display-server.service", system_bus=True):

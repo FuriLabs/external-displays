@@ -237,4 +237,5 @@ def create_settings_sheet_content(
     return content, sensitivity_slider, display_entry, connector_entry, card_entry, apply_button
 
 def create_toast(toast_overlay: Adw.ToastOverlay, message: str) -> None:
+    print(message)
     toast_overlay.add_toast(Adw.Toast.new(message))
