@@ -41,7 +41,7 @@ class ExternalDisplays(Adw.Application):
         # Display and hardware configuration
         self.target_display = os.environ.get("DISPLAY", ":1")
         self.card_path = "card1"
-        self.enable_file_path = os.path.expanduser("~/.enable_external_display")
+        self.enable_file_path = "/tmp/.enable_external_display"
 
         # Input device management
         self.input_device_buttons = []
