@@ -696,7 +696,7 @@ class ExternalDisplays(Adw.Application):
         if not display_info:
             return True
 
-        if display_info.get("status") == "connected":
+        if display_info.get("status") == "connected" and display_info.get("power_state") == "On" and display_info.get("manufacturer") != "":
             if self.refresh_timeout_id:
                 GLib.source_remove(self.refresh_timeout_id)
                 self.refresh_timeout_id = None
