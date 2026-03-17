@@ -26,6 +26,7 @@ from external_displays.utils import (
     detect_connector,
     set_gnome_wm_preference,
     get_sysfs_event_name,
+    get_input_device_candidates,
     set_input_redirector_display,
     set_input_redirector_input_paths,
     get_input_redirector_input_paths,
@@ -261,58 +262,34 @@ class ExternalDisplays(Adw.Application):
         self.input_device_rows.clear()
 
         selected_paths = get_input_redirector_input_paths()
-
         self.input_device_buttons = []
 
         try:
-            devices_path = "/dev/input/by-id"
-            if os.path.exists(devices_path):
-                devices = sorted(os.listdir(devices_path))
+            devices = get_input_device_candidates()
 
-                if not devices:
-                    no_devices_row = ui.create_action_row("No input devices found")
-                    self.inputs_expander.add_row(no_devices_row)
-                    self.input_device_rows.append(no_devices_row)
-                else:
-                    event_devices_found = False
-
-                    for device in devices:
-                        device_path = os.path.join(devices_path, device)
-
-                        # Only include event devices (skip js devices)
-                        if "event" not in device:
-                            continue
-
-                        event_devices_found = True
-
-                        try:
-                            real_path = os.path.realpath(device_path)
-
-                            friendly = get_sysfs_event_name(device, real_path)
-
-                            device_row = ui.create_action_row(friendly, real_path)
-
-                            checkbox = Gtk.CheckButton()
-                            checkbox.set_active(real_path in selected_paths)
-                            checkbox.connect("toggled", self.on_input_device_toggled)
-
-                            self.input_device_buttons.append((checkbox, real_path))
-                            device_row.add_prefix(checkbox)
-
-                            self.inputs_expander.add_row(device_row)
-                            self.input_device_rows.append(device_row)
-                        except Exception as e:
-                            print(f"Error processing device {device}: {e}")
-                            continue
-
-                    if not event_devices_found:
-                        no_devices_row = ui.create_action_row("No input devices found")
-                        self.inputs_expander.add_row(no_devices_row)
-                        self.input_device_rows.append(no_devices_row)
-            else:
-                no_devices_row = ui.create_action_row("Input devices directory not found")
+            if not devices:
+                no_devices_row = ui.create_action_row("No input devices found")
                 self.inputs_expander.add_row(no_devices_row)
                 self.input_device_rows.append(no_devices_row)
+                return
+
+            for friendly, real_path in devices:
+                try:
+                    device_row = ui.create_action_row(friendly, real_path)
+
+                    checkbox = Gtk.CheckButton()
+                    checkbox.set_active(real_path in selected_paths)
+                    checkbox.connect("toggled", self.on_input_device_toggled)
+
+                    self.input_device_buttons.append((checkbox, real_path))
+                    device_row.add_prefix(checkbox)
+
+                    self.inputs_expander.add_row(device_row)
+                    self.input_device_rows.append(device_row)
+                except Exception as e:
+                    print(f"Error processing device {real_path}: {e}")
+                    continue
+
         except Exception as e:
             print(f"Error listing input devices: {e}")
             error_row = ui.create_action_row("Error loading input devices")

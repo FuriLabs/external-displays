@@ -166,6 +166,92 @@ def get_sysfs_event_name(by_id_name, real_path):
 
     return base_label
 
+def get_ignored_input_events(ignore_file="/usr/lib/furios/device/input-redirector-ignore"):
+    ignored = set()
+
+    try:
+        if not os.path.exists(ignore_file):
+            return ignored
+
+        with open(ignore_file, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read().strip()
+
+        if not content:
+            return ignored
+
+        for entry in content.split(","):
+            entry = entry.strip()
+            if re.fullmatch(r"event\d+", entry):
+                ignored.add(entry)
+    except Exception as e:
+        print(f"Error reading ignored input events from {ignore_file}: {e}")
+
+    return ignored
+
+def get_input_device_candidates(ignore_file="/usr/lib/furios/device/input-redirector-ignore"):
+    devices = []
+    seen_real_paths = set()
+    ignored_events = get_ignored_input_events(ignore_file)
+
+    # persistent by-id devices
+    by_id_path = "/dev/input/by-id"
+    try:
+        if os.path.exists(by_id_path):
+            for device in sorted(os.listdir(by_id_path)):
+                if "event" not in device:
+                    continue
+
+                symlink_path = os.path.join(by_id_path, device)
+
+                try:
+                    real_path = os.path.realpath(symlink_path)
+                    event_name = os.path.basename(real_path)
+
+                    if not re.fullmatch(r"event\d+", event_name):
+                        continue
+
+                    if event_name in ignored_events:
+                        continue
+
+                    friendly = get_sysfs_event_name(device, real_path)
+
+                    devices.append((friendly, real_path))
+                    seen_real_paths.add(real_path)
+                except Exception as e:
+                    print(f"Error processing by-id device {symlink_path}: {e}")
+                    continue
+    except Exception as e:
+        print(f"Error scanning {by_id_path}: {e}")
+
+    # raw event devices not already covered by by-id
+    try:
+        for real_path in sorted(glob.glob("/dev/input/event*")):
+            try:
+                event_name = os.path.basename(real_path)
+
+                if event_name in ignored_events:
+                    continue
+
+                if real_path in seen_real_paths:
+                    continue
+
+                name_path = f"/sys/class/input/{event_name}/device/name"
+                if os.path.exists(name_path):
+                    with open(name_path, "r", encoding="utf-8", errors="ignore") as f:
+                        friendly = f.read().strip()
+                else:
+                    friendly = event_name
+
+                devices.append((friendly, real_path))
+                seen_real_paths.add(real_path)
+            except Exception as e:
+                print(f"Error processing event device {real_path}: {e}")
+                continue
+    except Exception as e:
+        print(f"Error scanning raw event devices: {e}")
+
+    return devices
+
 def set_gnome_wm_preference(value):
     try:
         settings = Gio.Settings.new("org.gnome.desktop.wm.preferences")
@@ -188,6 +274,7 @@ def set_input_redirector_input_paths(value):
     try:
         settings = Gio.Settings.new("io.furios.input-redirector")
         settings.set_string("input-paths", value)
+        return True
     except Exception as e:
         print(f"Failed to set input redirector input paths: {e}")
         return False
