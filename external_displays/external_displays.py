@@ -195,6 +195,7 @@ class ExternalDisplays(Adw.Application):
         self.usb_monitor = USBMonitor(callback=self.on_usb_event)
         self.usb_monitor.start()
         self.update_dock_banner()
+        self.update_display_services_switch_state()
 
         # Regain focus periodically (this is a hack)
         GLib.timeout_add(1000, self.regain_focus)
@@ -235,8 +236,20 @@ class ExternalDisplays(Adw.Application):
         self.dock_banner.set_revealed(not connected)
         return False
 
+    def update_display_services_switch_state(self):
+        if self.display_services_switch is None:
+            return False
+
+        dock_connected = self.is_dock_connected()
+
+        allow_interaction = self.display_enabled or dock_connected
+        self.display_services_switch.set_sensitive(allow_interaction)
+
+        return False
+
     def on_usb_event(self, action: str, device_info: dict):
         GLib.idle_add(self.update_dock_banner)
+        GLib.idle_add(self.update_display_services_switch_state)
 
     def load_input_devices(self):
         if not hasattr(self, "inputs_expander") or self.inputs_expander is None:
@@ -261,12 +274,16 @@ class ExternalDisplays(Adw.Application):
                     self.inputs_expander.add_row(no_devices_row)
                     self.input_device_rows.append(no_devices_row)
                 else:
+                    event_devices_found = False
+
                     for device in devices:
                         device_path = os.path.join(devices_path, device)
 
                         # Only include event devices (skip js devices)
                         if "event" not in device:
                             continue
+
+                        event_devices_found = True
 
                         try:
                             real_path = os.path.realpath(device_path)
@@ -287,6 +304,11 @@ class ExternalDisplays(Adw.Application):
                         except Exception as e:
                             print(f"Error processing device {device}: {e}")
                             continue
+
+                    if not event_devices_found:
+                        no_devices_row = ui.create_action_row("No input devices found")
+                        self.inputs_expander.add_row(no_devices_row)
+                        self.input_device_rows.append(no_devices_row)
             else:
                 no_devices_row = ui.create_action_row("Input devices directory not found")
                 self.inputs_expander.add_row(no_devices_row)
@@ -316,6 +338,7 @@ class ExternalDisplays(Adw.Application):
         self.update_display_info()
         self.load_input_devices()
         self.update_dock_banner()
+        self.update_display_services_switch_state()
         ui.create_toast(self.toast_overlay, "Refresh complete")
 
     def connect_key_controller(self):
@@ -458,6 +481,11 @@ class ExternalDisplays(Adw.Application):
         self.config_page.append(scrolled)
 
     def on_display_services_toggled(self, _switch, state):
+        if state and not self.is_dock_connected():
+            ui.create_toast(self.toast_overlay, "Docking Station must be connected before starting display services")
+            GLib.idle_add(self.update_display_services_switch_state)
+            return True
+
         def on_finished():
             set_power_profile_overdrive(self.display_enabled)
 
@@ -488,15 +516,19 @@ class ExternalDisplays(Adw.Application):
 
             self.inputs_expander.set_sensitive(True)
             self.refresh_display_info()
+            self.load_input_devices()
         else:
             for _key, label in self.display_info_labels.items():
                 label.set_text("")
 
             self.inputs_expander.set_sensitive(False)
+            self.load_input_devices()
 
             if self.refresh_timeout_id is not None:
                 GLib.source_remove(self.refresh_timeout_id)
                 self.refresh_timeout_id = None
+
+        self.update_display_services_switch_state()
 
     def show_progress_dialog(self, message):
         self.progress_dialog = ui.create_progress_dialog(message)
@@ -533,6 +565,17 @@ class ExternalDisplays(Adw.Application):
     def start_display_services(self):
         try:
             success = True
+
+            if not self.is_dock_connected():
+                GLib.idle_add(
+                    ui.create_toast,
+                    self.toast_overlay,
+                    "Docking Station must be connected before starting display services",
+                )
+                GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+                GLib.idle_add(self.update_display_services_switch_state)
+                GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
+                return False
 
             set_input_redirector_display(self.target_display)
 
@@ -574,9 +617,11 @@ class ExternalDisplays(Adw.Application):
             set_gnome_wm_preference(":minimize,maximize,close")
 
             if success:
+                self.display_enabled = True
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services enabled successfully")
                 GLib.idle_add(self.update_display_ui_state, True)
-                self.display_enabled = True
+                GLib.idle_add(self.load_input_devices)
+                GLib.idle_add(self.update_display_services_switch_state)
             else:
                 # Restore if we failed
                 set_gnome_wm_preference("appmenu:")
@@ -586,9 +631,12 @@ class ExternalDisplays(Adw.Application):
                         os.remove(self.enable_file_path)
                     except Exception as e:
                         print(f"Error removing enable file after failure: {e}")
-                GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+
                 self.display_enabled = False
-                self.inputs_expander.set_expanded(False)
+                GLib.idle_add(lambda: self.display_services_switch.set_active(False))
+                GLib.idle_add(lambda: self.inputs_expander.set_expanded(False))
+                GLib.idle_add(self.load_input_devices)
+                GLib.idle_add(self.update_display_services_switch_state)
 
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
         except Exception as e:
@@ -599,8 +647,10 @@ class ExternalDisplays(Adw.Application):
 
             set_gnome_wm_preference("appmenu:")
 
+            GLib.idle_add(lambda: self.inputs_expander.set_expanded(False))
+            GLib.idle_add(self.load_input_devices)
+            GLib.idle_add(self.update_display_services_switch_state)
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
-            self.inputs_expander.set_expanded(False)
 
         return False
 
@@ -623,15 +673,21 @@ class ExternalDisplays(Adw.Application):
             set_input_redirector_input_paths("")
             print("Cleared input-redirector input-paths")
 
+            self.display_enabled = False
+
             GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services stopped successfully")
             GLib.idle_add(self.update_display_ui_state, False)
+            GLib.idle_add(self.load_input_devices)
+            GLib.idle_add(self.update_display_services_switch_state)
         except Exception as e:
             print(f"Unexpected error in stop_display_services: {e}")
             GLib.idle_add(ui.create_toast, self.toast_overlay, f"Error stopping display services: {e}")
+            self.display_enabled = False
+            GLib.idle_add(self.load_input_devices)
+            GLib.idle_add(self.update_display_services_switch_state)
 
+        GLib.idle_add(lambda: self.inputs_expander.set_expanded(False))
         GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
-        self.inputs_expander.set_expanded(False)
-        self.display_enabled = False
 
         return False
 
@@ -643,6 +699,7 @@ class ExternalDisplays(Adw.Application):
         if display_info.get("status") == "connected":
             if self.refresh_timeout_id:
                 GLib.source_remove(self.refresh_timeout_id)
+                self.refresh_timeout_id = None
         return True
 
     def on_draw(self, area, cr, width, height):
