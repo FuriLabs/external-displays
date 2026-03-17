@@ -63,8 +63,8 @@ def get_display_info(card_path="card1", connector="DVI-I-1"):
 
     if not os.path.exists(base_path):
         return {
-            'status': 'Not Found',
-            'power_state': 'Unknown',
+            'status': '',
+            'power_state': '',
             'manufacturer': ''
         }
 
@@ -72,13 +72,13 @@ def get_display_info(card_path="card1", connector="DVI-I-1"):
         with open(f"{base_path}/status", 'r') as f:
             status = f.read().strip()
     except:
-        status = 'Unknown'
+        status = ''
 
     try:
         with open(f"{base_path}/dpms", 'r') as f:
             power_state = f.read().strip()
     except:
-        power_state = 'Unknown'
+        power_state = ''
 
     edid_path = f"{base_path}/edid"
     if os.path.exists(edid_path):
@@ -87,7 +87,7 @@ def get_display_info(card_path="card1", connector="DVI-I-1"):
             edid = Edid(edid_array)
             manufacturer = parse_mfct_id(edid.manufacturer_id)
         else:
-            manufacturer = 'Error'
+            manufacturer = ''
     else:
         manufacturer = ''
 
