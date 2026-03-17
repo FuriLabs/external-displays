@@ -16,6 +16,7 @@ from gi.repository import Gtk, GLib, Adw, Gio
 from external_displays.edid import get_display_info
 from external_displays.keyboard_emulator import KeyboardEmulator
 from external_displays.touch_mouse_emulator import TouchMouseEmulator
+from external_displays.usb import USBMonitor
 from external_displays.utils import (
     check_service_status,
     start_service,
@@ -62,6 +63,7 @@ class ExternalDisplays(Adw.Application):
         self.input_page = None
         self.drawing_area = None
         self.status_label = None
+        self.dock_banner = None
 
         # Settings sheet
         self.sensitivity_slider = None
@@ -96,9 +98,12 @@ class ExternalDisplays(Adw.Application):
         # Display service status
         self.display_enabled = False
 
+        # USB monitoring
+        self.usb_monitor = None
+
     def on_activate(self, app):
         self.win = Adw.ApplicationWindow(application=app)
-        self.win.connect("close-request", lambda *_: exit(0))
+        self.win.connect("close-request", self.on_close_request)
         self.win.set_default_size(800, 600)
         self.win.set_title("External Displays")
 
@@ -147,6 +152,10 @@ class ExternalDisplays(Adw.Application):
         self.stack, self.config_page, self.input_page, view_switcher = ui.create_view_stack_pages()
         main_container = ui.create_bottom_sheet_content(self.stack, view_switcher)
 
+        # Dock banner
+        self.dock_banner = ui.create_banner("Docking Station is not connected")
+        main_container.prepend(self.dock_banner)
+
         self.bottom_sheet.set_content(main_container)
         self.toolbar_view.set_content(self.bottom_sheet)
         self.toast_overlay.set_child(self.toolbar_view)
@@ -182,6 +191,11 @@ class ExternalDisplays(Adw.Application):
         if self.display_enabled:
             self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
 
+        # Start USB monitoring
+        self.usb_monitor = USBMonitor(callback=self.on_usb_event)
+        self.usb_monitor.start()
+        self.update_dock_banner()
+
         # Regain focus periodically (this is a hack)
         GLib.timeout_add(1000, self.regain_focus)
 
@@ -190,6 +204,39 @@ class ExternalDisplays(Adw.Application):
             self.connect_key_controller()
 
         self.win.present()
+
+    def on_close_request(self, *_args):
+        if self.usb_monitor is not None:
+            self.usb_monitor.stop()
+            self.usb_monitor = None
+        return False
+
+    def is_dock_connected(self) -> bool:
+        if self.usb_monitor is None:
+            return False
+
+        def matcher(info: dict) -> bool:
+            candidates = [
+                info.get("model", ""),
+                info.get("serial", ""),
+                info.get("device_path", ""),
+                info.get("devpath", ""),
+            ]
+            text = " ".join(str(value) for value in candidates if value).upper()
+            return "FURILABS_FLH1" in text
+
+        return self.usb_monitor.is_device_connected(matcher)
+
+    def update_dock_banner(self):
+        if self.dock_banner is None:
+            return False
+
+        connected = self.is_dock_connected()
+        self.dock_banner.set_revealed(not connected)
+        return False
+
+    def on_usb_event(self, action: str, device_info: dict):
+        GLib.idle_add(self.update_dock_banner)
 
     def load_input_devices(self):
         if not hasattr(self, "inputs_expander") or self.inputs_expander is None:
@@ -268,6 +315,7 @@ class ExternalDisplays(Adw.Application):
         # Refresh display information
         self.update_display_info()
         self.load_input_devices()
+        self.update_dock_banner()
         ui.create_toast(self.toast_overlay, "Refresh complete")
 
     def connect_key_controller(self):
@@ -504,7 +552,11 @@ class ExternalDisplays(Adw.Application):
                 success = False
 
             if success and not wait_for_display_connected(self.card_path, detect_connector(self.card_path)):
-                GLib.idle_add(ui.create_toast, self.toast_overlay, f"Timeout waiting for display connection at path {self.card_path} and connector {detect_connector(self.card_path)}")
+                GLib.idle_add(
+                    ui.create_toast,
+                    self.toast_overlay,
+                    f"Timeout waiting for display connection at path {self.card_path} and connector {detect_connector(self.card_path)}",
+                )
                 success = False
 
             if success and not start_service("external-display-display-server.service", system_bus=True):

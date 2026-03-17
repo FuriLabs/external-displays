@@ -125,6 +125,17 @@ def create_expander_row(title: str, subtitle: str | None = None) -> Adw.Expander
         expander.set_subtitle(subtitle)
     return expander
 
+def create_banner(title: str) -> Adw.Banner:
+    banner = Adw.Banner()
+    banner.set_title(title)
+    banner.set_revealed(False)
+    banner.set_button_label("")
+    banner.set_margin_top(0)
+    banner.set_margin_bottom(0)
+    banner.set_margin_start(0)
+    banner.set_margin_end(0)
+    return banner
+
 def create_progress_dialog(message: str) -> Adw.Dialog:
     dialog = Adw.Dialog.new()
     dialog.set_content_width(350)
