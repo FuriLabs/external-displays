@@ -14,6 +14,7 @@ from external_displays.input_redirector import InputRedirector
 # Linux input event codes
 BTN_LEFT = 272
 BTN_RIGHT = 273
+REL_WHEEL = 8
 
 class TouchMouseEmulator:
     def __init__(self, drawing_area, app):
@@ -27,6 +28,17 @@ class TouchMouseEmulator:
 
         # Movement threshold to prevent accidental clicks
         self.movement_threshold = 10.0  # Pixels of movement required to consider it a drag, not a tap
+
+        # Scrollbar
+        self.scrollbar_width = 28
+        self.scrollbar_line_margin = 12
+        self.is_scrollbar_scrolling = False
+        self.suppress_next_release_click = False
+
+        # Smaller value = more sensitive
+        self.scroll_pixels_per_step = 10.0
+        self.scroll_remainder = 0.0
+        self.scroll_started = False
 
         # Flag to track if we've moved enough to consider it a drag
         self.has_moved_threshold = False
@@ -71,6 +83,12 @@ class TouchMouseEmulator:
         self.last_x = 0
         self.last_y = 0
 
+    def is_in_scrollbar_region(self, x: float) -> bool:
+        width = self.drawing_area.get_allocated_width()
+        if width <= 0:
+            return False
+        return x >= (width - self.scrollbar_width)
+
     def on_draw(self, area, cr, width, height):
         # Draw background
         cr.set_source_rgb(0.9, 0.9, 0.9)
@@ -105,9 +123,30 @@ class TouchMouseEmulator:
         cr.line_to(width / 2, height / 2 + 20)
         cr.stroke()
 
+        # Draw scrollbar guide area on the right side
+        scrollbar_x = width - self.scrollbar_width
+
+        cr.set_source_rgba(0.75, 0.75, 0.75, 0.35)
+        cr.rectangle(scrollbar_x, 0, self.scrollbar_width, height)
+        cr.fill()
+
+        cr.set_line_width(3)
+        if self.is_scrollbar_scrolling:
+            cr.set_source_rgb(0.2, 0.4, 0.9)
+        else:
+            cr.set_source_rgb(0.35, 0.35, 0.35)
+
+        line_x = width - self.scrollbar_line_margin
+        cr.move_to(line_x, 12)
+        cr.line_to(line_x, height - 12)
+        cr.stroke()
+
         # Draw touch indicator
         if self.touch_active:
-            cr.set_source_rgb(1.0, 0.0, 0.0)
+            if self.is_scrollbar_scrolling:
+                cr.set_source_rgb(0.2, 0.4, 0.9)
+            else:
+                cr.set_source_rgb(1.0, 0.0, 0.0)
             cr.arc(self.touch_x, self.touch_y, 10, 0, 2 * 3.14159)
             cr.fill()
 
@@ -119,7 +158,21 @@ class TouchMouseEmulator:
 
     def scroll_step(self, direction):
         val = 1 if direction == "down" else -1
-        self.input_redirector.scroll(self.REL_WHEEL, val)
+        self.input_redirector.scroll(REL_WHEEL, val)
+
+    def scroll_by_pixels(self, delta_y: float):
+        # Positive delta_y means finger moved down -> page should scroll down
+        self.scroll_remainder += delta_y
+
+        steps = int(self.scroll_remainder / self.scroll_pixels_per_step)
+        if steps == 0:
+            return
+
+        direction = "down" if steps > 0 else "up"
+        for _ in range(abs(steps)):
+            self.scroll_step(direction)
+
+        self.scroll_remainder -= steps * self.scroll_pixels_per_step
 
     def on_press(self, gesture, n_press, x, y):
         button = gesture.get_current_button()
@@ -133,11 +186,29 @@ class TouchMouseEmulator:
         # Reset movement tracking on press
         self.has_moved_threshold = False
         self.total_movement = 0.0
+        self.scroll_remainder = 0.0
+        self.scroll_started = False
 
         # Store drag starting reference
         self.drag_start_pos = (x, y)
         self.last_x = x
         self.last_y = y
+
+        # Reset click suppression unless we are entering scrollbar mode now
+        self.suppress_next_release_click = False
+
+        # If press starts in the scrollbar region, enter scroll mode
+        self.is_scrollbar_scrolling = self.is_in_scrollbar_region(x)
+        if self.is_scrollbar_scrolling:
+            self.is_gesture_dragging = True
+            self.suppress_next_release_click = True
+
+            if self.touch_hold_timer:
+                GLib.source_remove(self.touch_hold_timer)
+                self.touch_hold_timer = None
+
+            self.drawing_area.queue_draw()
+            return
 
         # Handle mouse button press events
         if button == 1:  # Left
@@ -168,6 +239,18 @@ class TouchMouseEmulator:
             GLib.source_remove(self.touch_hold_timer)
             self.touch_hold_timer = None
 
+        # If this interaction was used for scrollbar scrolling, never emit a click
+        if self.is_scrollbar_scrolling or self.suppress_next_release_click:
+            self.is_scrollbar_scrolling = False
+            self.is_gesture_dragging = False
+            self.drag_start_pos = None
+            self.has_moved_threshold = False
+            self.total_movement = 0.0
+            self.scroll_remainder = 0.0
+            self.scroll_started = False
+            self.suppress_next_release_click = False
+            return
+
         # Handle left button (1) clicks
         if button == 1:
             # Only do a click if:
@@ -188,10 +271,13 @@ class TouchMouseEmulator:
         # Reset movement tracking
         self.has_moved_threshold = False
         self.total_movement = 0.0
+        self.scroll_remainder = 0.0
+        self.scroll_started = False
+        self.suppress_next_release_click = False
 
     def on_touch_hold(self):
-        # Only start drag if we haven't moved much (to prevent accidental drags)
-        if not self.has_moved_threshold:
+        # Only start drag if we haven't moved much and are not in scrollbar mode
+        if not self.has_moved_threshold and not self.is_scrollbar_scrolling:
             # Start drag operation where the cursor currently is
             self.input_redirector.mouse_button(BTN_LEFT, 1)
             self.is_dragging = True
@@ -214,6 +300,13 @@ class TouchMouseEmulator:
         # Reset movement tracking
         self.has_moved_threshold = False
         self.total_movement = 0.0
+        self.scroll_remainder = 0.0
+        self.scroll_started = False
+
+        # Detect if the drag started in the scrollbar region
+        self.is_scrollbar_scrolling = self.is_in_scrollbar_region(start_x)
+        if self.is_scrollbar_scrolling:
+            self.suppress_next_release_click = True
 
         self.drawing_area.queue_draw()
 
@@ -238,21 +331,32 @@ class TouchMouseEmulator:
         delta_x = current_x - self.last_x
         delta_y = current_y - self.last_y
 
-        # Calculate the Total movement
-        total_offset = (offset_x ** 2 + offset_y ** 2) ** 0.5
-        self.total_movement += total_offset
+        self.last_x = current_x
+        self.last_y = current_y
+
+        if self.is_scrollbar_scrolling:
+            if abs(offset_y) > 2:
+                self.scroll_started = True
+                self.has_moved_threshold = True
+                self.suppress_next_release_click = True
+
+            if self.scroll_started:
+                self.scroll_by_pixels(delta_y)
+
+            self.drawing_area.queue_draw()
+            return
+
+        # Calculate total movement from the gesture origin
+        total_distance = (offset_x ** 2 + offset_y ** 2) ** 0.5
 
         # If we've moved enough, mark as a movement, not a tap
-        if self.total_movement > self.movement_threshold and not self.has_moved_threshold:
+        if total_distance > self.movement_threshold and not self.has_moved_threshold:
             self.has_moved_threshold = True
 
             # Cancel hold timer if we start moving
             if self.touch_hold_timer:
                 GLib.source_remove(self.touch_hold_timer)
                 self.touch_hold_timer = None
-
-        self.last_x = current_x
-        self.last_y = current_y
 
         # Scale deltas
         scaled_dx = self.scale_delta_x(delta_x, 0)
@@ -269,6 +373,16 @@ class TouchMouseEmulator:
     def on_drag_end(self, gesture, offset_x, offset_y):
         self.touch_active = False
         self.drawing_area.queue_draw()
+
+        if self.is_scrollbar_scrolling:
+            self.is_scrollbar_scrolling = False
+            self.is_gesture_dragging = False
+            self.drag_start_pos = None
+            self.has_moved_threshold = True
+            self.suppress_next_release_click = True
+            self.scroll_remainder = 0.0
+            self.scroll_started = False
+            return
 
         # Calculate total movement distance
         total_distance = (offset_x ** 2 + offset_y ** 2) ** 0.5
@@ -327,6 +441,10 @@ class TouchMouseEmulator:
 
     def clear_touch_state(self):
         self.active_touches = {}
+        self.is_scrollbar_scrolling = False
+        self.suppress_next_release_click = False
+        self.scroll_remainder = 0.0
+        self.scroll_started = False
 
         if self.touch_hold_timer:
             GLib.source_remove(self.touch_hold_timer)
