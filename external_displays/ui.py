@@ -16,7 +16,7 @@ def create_toast_overlay() -> Adw.ToastOverlay:
 def create_toolbar_view() -> Adw.ToolbarView:
     return Adw.ToolbarView()
 
-def create_header_bar() -> tuple[Adw.HeaderBar, Gtk.Button, Gtk.MenuButton]:
+def create_header_bar() -> tuple[Adw.HeaderBar, Gtk.Button, Gtk.Button, Gtk.MenuButton]:
     header_bar = Adw.HeaderBar()
 
     refresh_button = Gtk.Button()
@@ -24,16 +24,21 @@ def create_header_bar() -> tuple[Adw.HeaderBar, Gtk.Button, Gtk.MenuButton]:
     refresh_button.set_tooltip_text("Refresh display information and input devices")
     header_bar.pack_start(refresh_button)
 
+    keyboard_button = Gtk.Button()
+    keyboard_button.set_icon_name("input-keyboard-symbolic")
+    keyboard_button.set_tooltip_text("Open on-screen keyboard")
+    keyboard_button.add_css_class("flat")
+    header_bar.pack_start(keyboard_button)
+
     menu_button = Gtk.MenuButton()
     menu_button.set_icon_name("open-menu-symbolic")
     header_bar.pack_end(menu_button)
 
-    return header_bar, refresh_button, menu_button
+    return header_bar, refresh_button, keyboard_button, menu_button
 
 def create_menu_model() -> Gio.Menu:
     menu = Gio.Menu.new()
     menu.append("Settings", "app.settings")
-    menu.append("Info", "app.info")
     return menu
 
 def create_bottom_sheet() -> Adw.BottomSheet:
@@ -85,6 +90,62 @@ def create_drawing_area_frame(drawing_area: Gtk.DrawingArea) -> Gtk.Frame:
     frame.set_child(drawing_area)
     return frame
 
+def create_modifier_button_bar() -> tuple[Gtk.ScrolledWindow, dict[str, Gtk.ToggleButton], dict[str, Gtk.Button]]:
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.NEVER)
+    scrolled.set_hexpand(True)
+    scrolled.set_vexpand(False)
+    scrolled.set_min_content_height(168)
+
+    grid = Gtk.Grid()
+    grid.set_row_spacing(6)
+    grid.set_column_spacing(6)
+    grid.set_margin_top(8)
+    grid.set_margin_bottom(4)
+    grid.set_margin_start(2)
+    grid.set_margin_end(2)
+    grid.set_hexpand(True)
+    grid.set_halign(Gtk.Align.FILL)
+    grid.set_column_homogeneous(True)
+
+    toggle_buttons = {}
+    tap_buttons = {}
+
+    def add_toggle(label: str, name: str, row: int, col: int):
+        btn = Gtk.ToggleButton(label=label)
+        btn.set_hexpand(True)
+        btn.set_halign(Gtk.Align.FILL)
+        btn.set_vexpand(False)
+        grid.attach(btn, col, row, 1, 1)
+        toggle_buttons[name] = btn
+
+    def add_tap(label: str, name: str, row: int, col: int):
+        btn = Gtk.Button(label=label)
+        btn.set_hexpand(True)
+        btn.set_halign(Gtk.Align.FILL)
+        btn.set_vexpand(False)
+        grid.attach(btn, col, row, 1, 1)
+        tap_buttons[name] = btn
+
+    # Row 1: ctrl super alt
+    add_toggle("Ctrl", "ctrl", 0, 0)
+    add_toggle("Super", "super", 0, 1)
+    add_toggle("Alt", "alt", 0, 2)
+
+    # Row 2: escape up tab
+    add_tap("Escape", "escape", 1, 0)
+    add_tap("↑", "up", 1, 1)
+    add_tap("Tab", "tab", 1, 2)
+
+    # Row 3: left down right
+    add_tap("←", "left", 2, 0)
+    add_tap("↓", "down", 2, 1)
+    add_tap("→", "right", 2, 2)
+
+    scrolled.set_child(grid)
+
+    return scrolled, toggle_buttons, tap_buttons
+
 def create_scrolled_window() -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -109,7 +170,6 @@ def create_action_row(title: str, subtitle: str | None = None) -> Adw.ActionRow:
 def create_value_label(text: str = "") -> Gtk.Label:
     label = Gtk.Label(label=text)
     label.set_valign(Gtk.Align.CENTER)
-    label.set_ellipsize(True)
     label.set_selectable(True)
     return label
 
@@ -155,36 +215,6 @@ def create_progress_dialog(message: str) -> Adw.Dialog:
     label = Gtk.Label(label=message)
     content.append(label)
 
-    dialog.set_child(content)
-    return dialog
-
-def create_info_dialog(instructions: str) -> Adw.Dialog:
-    dialog = Adw.Dialog.new()
-    dialog.set_content_width(400)
-    dialog.set_content_height(300)
-    dialog.set_title("Usage Instructions")
-
-    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-    content.set_margin_top(24)
-    content.set_margin_bottom(24)
-    content.set_margin_start(24)
-    content.set_margin_end(24)
-
-    # Header bar for the dialog
-    header = Adw.HeaderBar()
-    header.set_show_start_title_buttons(False)
-    header.set_show_end_title_buttons(True)
-    content.append(header)
-
-    # Instructions label
-    label = Gtk.Label()
-    label.set_markup(instructions)
-    label.set_wrap(True)
-    label.set_xalign(0)
-    label.set_vexpand(True)
-    content.append(label)
-
-    # Set the dialog child
     dialog.set_child(content)
     return dialog
 

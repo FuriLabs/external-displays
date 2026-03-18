@@ -55,6 +55,39 @@ class KeyboardEmulator:
             "Menu": 127,
         }
 
+        self.named_keys = {
+            "shift": "Shift_L",
+            "shift_l": "Shift_L",
+            "shift_r": "Shift_R",
+            "ctrl": "Control_L",
+            "control": "Control_L",
+            "ctrl_l": "Control_L",
+            "control_l": "Control_L",
+            "ctrl_r": "Control_R",
+            "control_r": "Control_R",
+            "alt": "Alt_L",
+            "alt_l": "Alt_L",
+            "alt_r": "Alt_R",
+            "super": "Super_L",
+            "meta": "Super_L",
+            "win": "Super_L",
+            "super_l": "Super_L",
+            "super_r": "Super_R",
+            "esc": "Escape",
+            "escape": "Escape",
+            "tab": "Tab",
+            "caps": "Caps_Lock",
+            "caps_lock": "Caps_Lock",
+            "caps lock": "Caps_Lock",
+            "up": "Up",
+            "down": "Down",
+            "left": "Left",
+            "right": "Right",
+        }
+
+        # Track active direct modifier presses
+        self.direct_active_modifiers = set()
+
         self.xkb_ctx = xkb.Context()
         self.xkb_keymap = self.compile_keymap()
         self.xkb_min = int(self.xkb_keymap.min_keycode())
@@ -89,6 +122,10 @@ class KeyboardEmulator:
 
     def release(self, evdev: int):
         self.input_redirector.key_event_code(int(evdev), 0)
+
+    def tap(self, evdev: int):
+        self.press(evdev)
+        self.release(evdev)
 
     def mods_for_level(self, level: int):
         mods = []
@@ -146,6 +183,96 @@ class KeyboardEmulator:
             return Gdk.keyval_name(int(keyval)) or ""
         except Exception:
             return ""
+
+    def normalize_key_name(self, name: str) -> str:
+        if not name:
+            return ""
+        key = str(name).strip()
+        lower = key.lower()
+        return self.named_keys.get(lower, key)
+
+    def get_named_evdev(self, name: str):
+        resolved = self.normalize_key_name(name)
+
+        if resolved in self.modifier_evdev:
+            return self.modifier_evdev[resolved], True
+
+        if resolved in self.special_evdev:
+            return self.special_evdev[resolved], False
+
+        return None, False
+
+    def press_named_key(self, name: str) -> bool:
+        evdev, is_modifier = self.get_named_evdev(name)
+        if evdev is None:
+            print(f"KeyboardEmulator: unknown named key '{name}'")
+            return False
+
+        self.press(evdev)
+
+        if is_modifier:
+            self.direct_active_modifiers.add(int(evdev))
+
+        return True
+
+    def release_named_key(self, name: str) -> bool:
+        evdev, is_modifier = self.get_named_evdev(name)
+        if evdev is None:
+            print(f"KeyboardEmulator: unknown named key '{name}'")
+            return False
+
+        self.release(evdev)
+
+        if is_modifier:
+            self.direct_active_modifiers.discard(int(evdev))
+
+        return True
+
+    def tap_named_key(self, name: str) -> bool:
+        evdev, _is_modifier = self.get_named_evdev(name)
+        if evdev is None:
+            print(f"KeyboardEmulator: unknown named key '{name}'")
+            return False
+
+        self.tap(evdev)
+        return True
+
+    def press_modifier(self, name: str) -> bool:
+        resolved = self.normalize_key_name(name)
+        if resolved not in self.modifier_evdev:
+            print(f"KeyboardEmulator: '{name}' is not a modifier key")
+            return False
+
+        evdev = self.modifier_evdev[resolved]
+        self.press(evdev)
+        self.direct_active_modifiers.add(int(evdev))
+        return True
+
+    def release_modifier(self, name: str) -> bool:
+        resolved = self.normalize_key_name(name)
+        if resolved not in self.modifier_evdev:
+            print(f"KeyboardEmulator: '{name}' is not a modifier key")
+            return False
+
+        evdev = self.modifier_evdev[resolved]
+        self.release(evdev)
+        self.direct_active_modifiers.discard(int(evdev))
+        return True
+
+    def tap_special(self, name: str) -> bool:
+        resolved = self.normalize_key_name(name)
+        if resolved not in self.special_evdev:
+            print(f"KeyboardEmulator: '{name}' is not a special key")
+            return False
+
+        evdev = self.special_evdev[resolved]
+        self.tap(evdev)
+        return True
+
+    def release_all_direct_modifiers(self):
+        for evdev in reversed(list(self.direct_active_modifiers)):
+            self.release(evdev)
+        self.direct_active_modifiers.clear()
 
     def special_combo(self, keyval: int):
         name = self.keyval_name(keyval)

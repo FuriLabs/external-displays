@@ -7,7 +7,6 @@
 import gi
 import os
 import threading
-import subprocess
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -16,7 +15,7 @@ from gi.repository import Gtk, GLib, Adw, Gio
 from external_displays.edid import get_display_info
 from external_displays.keyboard_emulator import KeyboardEmulator
 from external_displays.touch_mouse_emulator import TouchMouseEmulator
-from external_displays.usb import USBMonitor
+from external_displays.udev import UDevMonitor
 from external_displays.utils import (
     check_service_status,
     start_service,
@@ -25,12 +24,13 @@ from external_displays.utils import (
     wait_for_display_connected,
     detect_connector,
     set_gnome_wm_preference,
-    get_sysfs_event_name,
     get_input_device_candidates,
     set_input_redirector_display,
     set_input_redirector_input_paths,
     get_input_redirector_input_paths,
     set_power_profile_overdrive,
+    get_osk_proxy,
+    set_osk_visible,
 )
 
 from external_displays import ui
@@ -86,6 +86,10 @@ class ExternalDisplays(Adw.Application):
         self.keyboard_emulator = None
         self.touch_mouse_emulator = None
 
+        # Input page modifier buttons
+        self.modifier_toggle_buttons = {}
+        self.modifier_tap_buttons = {}
+
         # Controllers
         self.key_controller = None
         self.config_page_key_controller = None
@@ -99,8 +103,12 @@ class ExternalDisplays(Adw.Application):
         # Display service status
         self.display_enabled = False
 
-        # USB monitoring
-        self.usb_monitor = None
+        # UDev monitoring
+        self.udev_monitor = None
+
+        # OSK state
+        self.osk_proxy = None
+        self.osk_visible = False
 
     def on_activate(self, app):
         self.win = Adw.ApplicationWindow(application=app)
@@ -124,9 +132,10 @@ class ExternalDisplays(Adw.Application):
         self.toolbar_view = ui.create_toolbar_view()
 
         # Header bar
-        self.header_bar, refresh_button, menu_button = ui.create_header_bar()
+        self.header_bar, refresh_button, keyboard_button, menu_button = ui.create_header_bar()
 
         refresh_button.connect("clicked", self.on_refresh_clicked)
+        keyboard_button.connect("clicked", lambda _button: self.toggle_osk())
 
         # Menu
         menu_button.set_menu_model(ui.create_menu_model())
@@ -138,10 +147,6 @@ class ExternalDisplays(Adw.Application):
         settings_action = Gio.SimpleAction.new("settings", None)
         settings_action.connect("activate", self.on_settings_action)
         self.add_action(settings_action)
-
-        info_action = Gio.SimpleAction.new("info", None)
-        info_action.connect("activate", self.on_info_action)
-        self.add_action(info_action)
 
         # Add header bar to toolbar view
         self.toolbar_view.add_top_bar(self.header_bar)
@@ -192,9 +197,9 @@ class ExternalDisplays(Adw.Application):
         if self.display_enabled:
             self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
 
-        # Start USB monitoring
-        self.usb_monitor = USBMonitor(callback=self.on_usb_event)
-        self.usb_monitor.start()
+        # Start udev monitoring
+        self.udev_monitor = UDevMonitor(callback=self.on_udev_event)
+        self.udev_monitor.start()
         self.update_dock_banner()
         self.update_display_services_switch_state()
 
@@ -208,13 +213,20 @@ class ExternalDisplays(Adw.Application):
         self.win.present()
 
     def on_close_request(self, *_args):
-        if self.usb_monitor is not None:
-            self.usb_monitor.stop()
-            self.usb_monitor = None
+        self.release_modifier_buttons()
+
+        success, proxy = set_osk_visible(self.osk_proxy, False)
+        self.osk_proxy = proxy
+        if success:
+            self.osk_visible = False
+
+        if self.udev_monitor is not None:
+            self.udev_monitor.stop()
+            self.udev_monitor = None
         return False
 
     def is_dock_connected(self) -> bool:
-        if self.usb_monitor is None:
+        if self.udev_monitor is None:
             return False
 
         def matcher(info: dict) -> bool:
@@ -227,7 +239,7 @@ class ExternalDisplays(Adw.Application):
             text = " ".join(str(value) for value in candidates if value).upper()
             return "FURILABS_FLH1" in text
 
-        return self.usb_monitor.is_device_connected(matcher)
+        return self.udev_monitor.is_device_connected(matcher)
 
     def update_dock_banner(self):
         if self.dock_banner is None:
@@ -248,12 +260,37 @@ class ExternalDisplays(Adw.Application):
 
         return False
 
-    def on_usb_event(self, action: str, device_info: dict):
-        GLib.idle_add(self.update_dock_banner)
-        GLib.idle_add(self.update_display_services_switch_state)
+    def on_udev_event(self, action: str, device_info: dict):
+        kind = device_info.get("kind", "")
+
+        if kind == "usb":
+            GLib.idle_add(self.update_dock_banner)
+            GLib.idle_add(self.update_display_services_switch_state)
+
+        elif kind == "input":
+            if action in ("add", "remove", "change", "bind", "unbind"):
+                GLib.idle_add(self.load_input_devices)
+
+    def toggle_osk(self):
+        new_state = not self.osk_visible
+
+        success, proxy = set_osk_visible(self.osk_proxy, new_state)
+        self.osk_proxy = proxy
+
+        if not success:
+            if get_osk_proxy(self.osk_proxy) is None:
+                GLib.idle_add(ui.create_toast, self.toast_overlay, "On-screen keyboard service is unavailable")
+            else:
+                GLib.idle_add(ui.create_toast, self.toast_overlay, "Failed to toggle on-screen keyboard")
+            return
+
+        self.osk_visible = new_state
+
+        if self.drawing_area is not None:
+            self.drawing_area.grab_focus()
 
     def load_input_devices(self):
-        if not hasattr(self, "inputs_expander") or self.inputs_expander is None:
+        if self.inputs_expander is None:
             return
 
         # Remove all existing rows that we previously added
@@ -335,19 +372,6 @@ class ExternalDisplays(Adw.Application):
     def on_settings_action(self, _action, _parameter):
         self.bottom_sheet.set_open(True)
 
-    def on_info_action(self, _action, _parameter):
-        instructions = (
-            "• Touch and move to move cursor\n"
-            "• Tap for left click\n"
-            "• Double tap for double click\n"
-            "• Two-finger tap for right click\n"
-            "• Touch and hold for drag operations\n"
-            "• Two-finger pinch for scroll\n"
-        )
-
-        dialog = ui.create_info_dialog(instructions)
-        dialog.present(self.win)
-
     def create_main_content(self):
         # Drawing area for touch events
         self.drawing_area = Gtk.DrawingArea()
@@ -367,7 +391,22 @@ class ExternalDisplays(Adw.Application):
 
         # Frame for the drawing area
         frame = ui.create_drawing_area_frame(self.drawing_area)
+        frame.set_vexpand(True)
+        frame.set_hexpand(True)
         self.input_page.append(frame)
+
+        # Modifier button bar
+        button_bar_scrolled, toggle_buttons, tap_buttons = ui.create_modifier_button_bar()
+        self.modifier_toggle_buttons = toggle_buttons
+        self.modifier_tap_buttons = tap_buttons
+
+        for name, button in self.modifier_toggle_buttons.items():
+            button.connect("toggled", self.on_modifier_toggled, name)
+
+        for name, button in self.modifier_tap_buttons.items():
+            button.connect("clicked", self.on_special_key_clicked, name)
+
+        self.input_page.append(button_bar_scrolled)
 
         self.touch_mouse_emulator = TouchMouseEmulator(self.drawing_area, self)
 
@@ -456,6 +495,41 @@ class ExternalDisplays(Adw.Application):
 
         scrolled.set_child(preferences_page)
         self.config_page.append(scrolled)
+
+    def on_modifier_toggled(self, button, name):
+        if self.keyboard_emulator is None:
+            return
+
+        try:
+            if button.get_active():
+                self.keyboard_emulator.press_modifier(name)
+            else:
+                self.keyboard_emulator.release_modifier(name)
+        except Exception as e:
+            print(f"Error toggling modifier {name}: {e}")
+
+    def on_special_key_clicked(self, button, name):
+        if self.keyboard_emulator is None and name != "keyboard":
+            return
+
+        try:
+            if name == "keyboard":
+                self.toggle_osk()
+            else:
+                self.keyboard_emulator.tap_special(name)
+        except Exception as e:
+            print(f"Error sending special key {name}: {e}")
+
+    def release_modifier_buttons(self):
+        if self.keyboard_emulator is not None:
+            try:
+                self.keyboard_emulator.release_all_direct_modifiers()
+            except Exception as e:
+                print(f"Error releasing direct modifiers: {e}")
+
+        for button in self.modifier_toggle_buttons.values():
+            if button.get_active():
+                button.set_active(False)
 
     def on_display_services_toggled(self, _switch, state):
         if state and not self.is_dock_connected():
@@ -688,6 +762,7 @@ class ExternalDisplays(Adw.Application):
 
     def on_focus_out(self, _controller):
         print("Window lost focus")
+        self.release_modifier_buttons()
         self.stop_focus_regain()
 
     def start_focus_regain(self):

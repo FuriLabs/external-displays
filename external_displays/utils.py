@@ -26,15 +26,15 @@ def check_service_status(service_name, system_bus=False):
             bus,
             Gio.DBusProxyFlags.NONE,
             None,
-            'org.freedesktop.systemd1',
-            '/org/freedesktop/systemd1',
-            'org.freedesktop.systemd1.Manager',
+            "org.freedesktop.systemd1",
+            "/org/freedesktop/systemd1",
+            "org.freedesktop.systemd1.Manager",
             None
         )
 
         unit_path = systemd_object.call_sync(
-            'GetUnit',
-            GLib.Variant('(s)', (service_name,)),
+            "GetUnit",
+            GLib.Variant("(s)", (service_name,)),
             Gio.DBusCallFlags.NONE,
             -1,
             None
@@ -44,16 +44,16 @@ def check_service_status(service_name, system_bus=False):
             bus,
             Gio.DBusProxyFlags.NONE,
             None,
-            'org.freedesktop.systemd1',
+            "org.freedesktop.systemd1",
             unit_path,
-            'org.freedesktop.systemd1.Unit',
+            "org.freedesktop.systemd1.Unit",
             None
         )
 
-        active_state = unit_object.get_cached_property('ActiveState').get_string()
-        return active_state == 'active'
+        active_state = unit_object.get_cached_property("ActiveState").get_string()
+        return active_state == "active"
     except GLib.Error as e:
-        if 'NoSuchUnit' in str(e):
+        if "NoSuchUnit" in str(e):
             return False
         print(f"Error checking {service_name} status: {e}")
         return False
@@ -65,15 +65,15 @@ def start_service(service_name, system_bus=False):
             bus,
             Gio.DBusProxyFlags.NONE,
             None,
-            'org.freedesktop.systemd1',
-            '/org/freedesktop/systemd1',
-            'org.freedesktop.systemd1.Manager',
+            "org.freedesktop.systemd1",
+            "/org/freedesktop/systemd1",
+            "org.freedesktop.systemd1.Manager",
             None
         )
 
         systemd_object.call_sync(
-            'StartUnit',
-            GLib.Variant('(ss)', (service_name, 'replace')),
+            "StartUnit",
+            GLib.Variant("(ss)", (service_name, "replace")),
             Gio.DBusCallFlags.NONE,
             -1,
             None
@@ -84,22 +84,21 @@ def start_service(service_name, system_bus=False):
         return False
 
 def stop_service(service_name, system_bus=False):
-    """Stop a systemd service using D-Bus"""
     try:
         bus = get_systemd_bus(system_bus)
         systemd_object = Gio.DBusProxy.new_sync(
             bus,
             Gio.DBusProxyFlags.NONE,
             None,
-            'org.freedesktop.systemd1',
-            '/org/freedesktop/systemd1',
-            'org.freedesktop.systemd1.Manager',
+            "org.freedesktop.systemd1",
+            "/org/freedesktop/systemd1",
+            "org.freedesktop.systemd1.Manager",
             None
         )
 
         systemd_object.call_sync(
-            'StopUnit',
-            GLib.Variant('(ss)', (service_name, 'replace')),
+            "StopUnit",
+            GLib.Variant("(ss)", (service_name, "replace")),
             Gio.DBusCallFlags.NONE,
             -1,
             None
@@ -121,7 +120,7 @@ def wait_for_display_connected(card_path, connector, timeout=30):
     start_time = time.time()
     while time.time() - start_time < timeout:
         display_info = get_display_info(card_path, connector)
-        if display_info.get('status') == 'connected':
+        if display_info.get("status") == "connected":
             return True
         time.sleep(1)
     return False
@@ -314,3 +313,42 @@ def set_power_profile_overdrive(enabled):
     except Exception as e:
         print(f"Failed to set power profile overdrive: {e}")
         return False
+
+def get_osk_proxy(osk_proxy):
+    if osk_proxy is not None:
+        return osk_proxy
+
+    try:
+        osk_proxy = Gio.DBusProxy.new_for_bus_sync(
+            Gio.BusType.SESSION,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            "sm.puri.OSK0",
+            "/sm/puri/OSK0",
+            "sm.puri.OSK0",
+            None,
+        )
+    except Exception as e:
+        print(f"Failed to create OSK proxy: {e}")
+        osk_proxy = None
+
+    return osk_proxy
+
+def set_osk_visible(osk_proxy, visible):
+    proxy = get_osk_proxy(osk_proxy)
+
+    if proxy is None:
+        return False, osk_proxy
+
+    try:
+        proxy.call_sync(
+            "SetVisible",
+            GLib.Variant("(b)", (visible,)),
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
+        )
+        return True, proxy
+    except Exception as e:
+        print(f"Failed to set OSK visibility: {e}")
+        return False, proxy
