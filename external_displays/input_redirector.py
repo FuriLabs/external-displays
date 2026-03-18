@@ -41,7 +41,6 @@ class InputRedirector:
         self.source = source
         self.proxy = None
         self.sock = None
-        self.connect()
 
     def close(self):
         if self.sock is not None:
