@@ -49,7 +49,7 @@ if [ -x /usr/libexec/mutter-furios-screencast-streamer ]; then
     STREAMER_PID=$!
 
     echo "Starting GNOME Shell with Wayland..."
-    gnome-shell --no-x11 --wayland --nested &
+    gnome-shell --wayland --nested &
     SHELL_PID=$!
 
     wait -n "$STREAMER_PID" "$SHELL_PID"
