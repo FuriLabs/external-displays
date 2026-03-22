@@ -39,6 +39,7 @@ from external_displays.utils import (
 
 from external_displays import ui
 
+
 class ExternalDisplays(Adw.Application):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -222,9 +223,6 @@ class ExternalDisplays(Adw.Application):
         self.update_display_services_switch_state()
         self.load_display_modes()
 
-        # Regain focus periodically (this is a hack)
-        GLib.timeout_add(1000, self.regain_focus)
-
         initial_tab = self.stack.get_visible_child_name()
         if initial_tab == "input":
             self.connect_key_controller()
@@ -232,17 +230,23 @@ class ExternalDisplays(Adw.Application):
         self.win.present()
 
     def on_close_request(self, *_args):
+        self.stop_focus_regain()
         self.release_modifier_buttons()
 
-        success, proxy = set_osk_visible(self.osk_proxy, False)
-        self.osk_proxy = proxy
-        if success:
-            self.osk_visible = False
+        if self.refresh_timeout_id is not None:
+            GLib.source_remove(self.refresh_timeout_id)
+            self.refresh_timeout_id = None
 
         if self.udev_monitor is not None:
             self.udev_monitor.stop()
             self.udev_monitor = None
-        return False
+
+        if self.win is not None:
+            self.win.destroy()
+            self.win = None
+
+        self.quit()
+        raise SystemExit
 
     def is_dock_connected(self) -> bool:
         if self.udev_monitor is None:
@@ -925,24 +929,41 @@ class ExternalDisplays(Adw.Application):
         self.stop_focus_regain()
 
     def start_focus_regain(self):
-        if not self.focus_regain_active:
-            self.focus_regain_active = True
+        if self.focus_regain_active:
+            return
+
+        self.focus_regain_active = True
+
+        if self.focus_regain_source_id is None:
             self.focus_regain_source_id = GLib.timeout_add(1000, self.regain_focus)
-            print("Focus regain started")
+
+        print("Focus regain started")
 
     def stop_focus_regain(self):
-        if self.focus_regain_active and self.focus_regain_source_id is not None:
+        if self.focus_regain_source_id is not None:
             GLib.source_remove(self.focus_regain_source_id)
             self.focus_regain_source_id = None
-            self.focus_regain_active = False
-            print("Focus regain stopped")
+
+        self.focus_regain_active = False
+        print("Focus regain stopped")
 
     def regain_focus(self):
-        if self.focus_regain_active:
-            self.win.present()
+        if not self.focus_regain_active:
+            self.focus_regain_source_id = None
+            return GLib.SOURCE_REMOVE
 
-            # If we're on the input tab, ensure drawing area has focus
-            if self.stack.get_visible_child_name() == "input":
+        if self.win is None:
+            self.focus_regain_source_id = None
+            return GLib.SOURCE_REMOVE
+
+        if not self.win.is_active():
+            self.focus_regain_active = False
+            self.focus_regain_source_id = None
+            return GLib.SOURCE_REMOVE
+
+        # If we're on the input tab, ensure drawing area has focus.
+        if self.stack is not None and self.stack.get_visible_child_name() == "input":
+            if self.drawing_area is not None:
                 self.drawing_area.grab_focus()
-            return GLib.SOURCE_CONTINUE
-        return GLib.SOURCE_REMOVE
+
+        return GLib.SOURCE_CONTINUE
