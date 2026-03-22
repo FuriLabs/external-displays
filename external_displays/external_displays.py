@@ -206,6 +206,11 @@ class ExternalDisplays(Adw.Application):
             except Exception as e:
                 print(f"Error removing enable file at startup: {e}")
 
+        try:
+            set_power_profile_overdrive(self.display_enabled)
+        except Exception as e:
+            print(f"Error setting power profile overdrive at startup: {e}")
+
         # Build pages
         self.create_main_content()
         self.create_settings_content()
