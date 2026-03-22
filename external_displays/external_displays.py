@@ -881,6 +881,7 @@ class ExternalDisplays(Adw.Application):
             stop_service("externaldisplay.service")
             stop_service("input-redirector.service")
             stop_service("external-display-display-server.service", system_bus=True)
+            stop_service("displaylink-driver.service", system_bus=True)
 
             set_input_redirector_input_paths("")
             print("Cleared input-redirector input-paths")
