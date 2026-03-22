@@ -1,5 +1,7 @@
 #!/bin/bash
 
+ENV_FILE="/run/user/$(id -u)/.external_display_env"
+
 cleanup() {
     echo "Restoring Wayland environment variables..."
     dbus-update-activation-environment --systemd DISPLAY="" XDG_SESSION_TYPE=wayland EGL_PLATFORM=wayland GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland
@@ -32,6 +34,41 @@ kill_pair_and_cleanup() {
     cleanup
 }
 
+load_external_display_env() {
+    if [ ! -f "$ENV_FILE" ]; then
+        return 0
+    fi
+
+    echo "Loading external display environment from $ENV_FILE"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|\#*)
+                continue
+                ;;
+            *=*)
+                key="${line%%=*}"
+                value="${line#*=}"
+
+                case "$key" in
+                    MUTTER_WAYLAND_NESTED_DISPLAY_RESOLUTION)
+                        export "$key=$value"
+                        echo "Exported $key=$value"
+                        ;;
+                    *)
+                        echo "Ignoring unsupported key: $key"
+                        ;;
+                esac
+                ;;
+            *)
+                echo "Ignoring malformed line: $line"
+                ;;
+        esac
+    done < "$ENV_FILE"
+}
+
+load_external_display_env
+
 if [ -x /usr/libexec/mutter-furios-screencast-streamer ]; then
     echo "mutter-furios-screencast-streamer found, using mutter wayland backend"
 
@@ -43,6 +80,7 @@ if [ -x /usr/libexec/mutter-furios-screencast-streamer ]; then
     export GNOME_SHELL_SKIP_DBUS
     export GNOME_SHELL_WAYLAND_SOCKET
     export GNOME_SHELL_DISABLE_OSK
+    export MUTTER_WAYLAND_NESTED_DISPLAY_RESOLUTION
 
     echo "Starting mutter DRM streamer"
     /usr/libexec/mutter-furios-screencast-streamer &
