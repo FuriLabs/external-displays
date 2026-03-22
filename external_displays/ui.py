@@ -16,7 +16,7 @@ def create_toast_overlay() -> Adw.ToastOverlay:
 def create_toolbar_view() -> Adw.ToolbarView:
     return Adw.ToolbarView()
 
-def create_header_bar() -> tuple[Adw.HeaderBar, Gtk.Button, Gtk.Button, Gtk.MenuButton]:
+def create_header_bar() -> tuple[Adw.HeaderBar, Gtk.Button, Gtk.Button, Gtk.Button, Gtk.MenuButton]:
     header_bar = Adw.HeaderBar()
 
     refresh_button = Gtk.Button()
@@ -30,11 +30,16 @@ def create_header_bar() -> tuple[Adw.HeaderBar, Gtk.Button, Gtk.Button, Gtk.Menu
     keyboard_button.add_css_class("flat")
     header_bar.pack_start(keyboard_button)
 
+    apply_button = Gtk.Button(label="Apply")
+    apply_button.add_css_class("suggested-action")
+    apply_button.set_tooltip_text("Apply pending display settings")
+    header_bar.pack_end(apply_button)
+
     menu_button = Gtk.MenuButton()
     menu_button.set_icon_name("open-menu-symbolic")
     header_bar.pack_end(menu_button)
 
-    return header_bar, refresh_button, keyboard_button, menu_button
+    return header_bar, refresh_button, keyboard_button, apply_button, menu_button
 
 def create_menu_model() -> Gio.Menu:
     menu = Gio.Menu.new()

@@ -31,6 +31,10 @@ from external_displays.utils import (
     set_power_profile_overdrive,
     get_osk_proxy,
     set_osk_visible,
+    get_display_modes,
+    read_external_display_env_file,
+    write_external_display_env_file,
+    remove_external_display_env_file,
 )
 
 from external_displays import ui
@@ -44,10 +48,21 @@ class ExternalDisplays(Adw.Application):
         self.target_display = os.environ.get("DISPLAY", ":1")
         self.card_path = "card1"
         self.enable_file_path = "/tmp/.enable_external_display"
+        self.default_display_mode = "1920x1080"
+        self.current_display_mode = self.default_display_mode
+        self.pending_display_mode = self.default_display_mode
+        self.startup_mode_initialized = False
+        self.display_resolution_env_key = "MUTTER_WAYLAND_NESTED_DISPLAY_RESOLUTION"
 
         # Input device management
         self.input_device_buttons = []
         self.input_device_rows = []
+
+        # Display mode management
+        self.display_mode_buttons = []
+        self.display_mode_rows = []
+        self.display_resolution_expander = None
+        self.display_mode_group_head = None
 
         # Flag to track if focus regain is active
         self.focus_regain_active = False
@@ -72,6 +87,7 @@ class ExternalDisplays(Adw.Application):
 
         # Switches and controls
         self.display_services_switch = None
+        self.header_apply_button = None
 
         # Labels for display info
         self.status_value = None
@@ -132,10 +148,12 @@ class ExternalDisplays(Adw.Application):
         self.toolbar_view = ui.create_toolbar_view()
 
         # Header bar
-        self.header_bar, refresh_button, keyboard_button, menu_button = ui.create_header_bar()
+        self.header_bar, refresh_button, keyboard_button, self.header_apply_button, menu_button = ui.create_header_bar()
 
         refresh_button.connect("clicked", self.on_refresh_clicked)
         keyboard_button.connect("clicked", lambda _button: self.toggle_osk())
+        self.header_apply_button.connect("clicked", self.on_header_apply_clicked)
+        self.header_apply_button.set_visible(False)
 
         # Menu
         menu_button.set_menu_model(ui.create_menu_model())
@@ -154,7 +172,7 @@ class ExternalDisplays(Adw.Application):
         # Setup the bottom sheet for settings
         self.bottom_sheet = ui.create_bottom_sheet()
 
-        # Create pages for view stack, input page, configuratin page and view switcher
+        # Create pages for view stack, input page, configuration page and view switcher
         self.stack, self.config_page, self.input_page, view_switcher = ui.create_view_stack_pages()
         main_container = ui.create_bottom_sheet_content(self.stack, view_switcher)
 
@@ -202,6 +220,7 @@ class ExternalDisplays(Adw.Application):
         self.udev_monitor.start()
         self.update_dock_banner()
         self.update_display_services_switch_state()
+        self.load_display_modes()
 
         # Regain focus periodically (this is a hack)
         GLib.timeout_add(1000, self.regain_focus)
@@ -266,6 +285,7 @@ class ExternalDisplays(Adw.Application):
         if kind == "usb":
             GLib.idle_add(self.update_dock_banner)
             GLib.idle_add(self.update_display_services_switch_state)
+            GLib.idle_add(self.load_display_modes)
 
         elif kind == "input":
             if action in ("add", "remove", "change", "bind", "unbind"):
@@ -326,12 +346,124 @@ class ExternalDisplays(Adw.Application):
                 except Exception as e:
                     print(f"Error processing device {real_path}: {e}")
                     continue
-
         except Exception as e:
             print(f"Error listing input devices: {e}")
             error_row = ui.create_action_row("Error loading input devices")
             self.inputs_expander.add_row(error_row)
             self.input_device_rows.append(error_row)
+
+    def load_display_modes(self):
+        if self.display_resolution_expander is None:
+            return
+
+        for row in list(self.display_mode_rows):
+            self.display_resolution_expander.remove(row)
+        self.display_mode_rows.clear()
+        self.display_mode_buttons.clear()
+        self.display_mode_group_head = None
+
+        try:
+            connector = detect_connector(self.card_path)
+            modes = get_display_modes(self.card_path, connector)
+
+            if not modes:
+                no_modes_row = ui.create_action_row("No display modes found")
+                no_modes_row.set_activatable(False)
+                self.display_resolution_expander.add_row(no_modes_row)
+                self.display_mode_rows.append(no_modes_row)
+                self.update_header_apply_visibility()
+                return
+
+            if not self.startup_mode_initialized:
+                saved_mode = read_external_display_env_file(self.display_resolution_env_key)
+
+                if saved_mode:
+                    if saved_mode in modes:
+                        self.current_display_mode = saved_mode
+                        self.pending_display_mode = saved_mode
+                    else:
+                        remove_external_display_env_file(self.display_resolution_env_key)
+                        if self.default_display_mode in modes:
+                            self.current_display_mode = self.default_display_mode
+                        else:
+                            self.current_display_mode = modes[0]
+                        self.pending_display_mode = self.current_display_mode
+                else:
+                    if self.default_display_mode in modes:
+                        self.current_display_mode = self.default_display_mode
+                    else:
+                        self.current_display_mode = modes[0]
+                    self.pending_display_mode = self.current_display_mode
+
+                self.startup_mode_initialized = True
+            else:
+                if self.current_display_mode not in modes:
+                    if self.default_display_mode in modes:
+                        self.current_display_mode = self.default_display_mode
+                    else:
+                        self.current_display_mode = modes[0]
+
+                if self.pending_display_mode not in modes:
+                    self.pending_display_mode = self.current_display_mode
+
+            for mode in modes:
+                mode_row = ui.create_action_row(mode)
+                mode_row.set_activatable(True)
+
+                radio = Gtk.CheckButton()
+                radio.set_valign(Gtk.Align.CENTER)
+
+                if self.display_mode_group_head is None:
+                    self.display_mode_group_head = radio
+                else:
+                    radio.set_group(self.display_mode_group_head)
+
+                radio.set_active(mode == self.pending_display_mode)
+                radio.connect("toggled", self.on_display_mode_selected, mode)
+
+                mode_row.add_prefix(radio)
+                mode_row.set_activatable_widget(radio)
+
+                self.display_resolution_expander.add_row(mode_row)
+                self.display_mode_rows.append(mode_row)
+                self.display_mode_buttons.append((radio, mode))
+
+            self.update_header_apply_visibility()
+        except Exception as e:
+            print(f"Error loading display modes: {e}")
+            error_row = ui.create_action_row("Error loading display modes")
+            error_row.set_activatable(False)
+            self.display_resolution_expander.add_row(error_row)
+            self.display_mode_rows.append(error_row)
+            self.update_header_apply_visibility()
+
+    def on_display_mode_selected(self, button, mode):
+        if not button.get_active():
+            return
+
+        self.pending_display_mode = mode
+        print(f"Selected display mode: {mode}")
+        self.update_header_apply_visibility()
+
+    def update_header_apply_visibility(self):
+        if self.header_apply_button is None:
+            return
+
+        has_pending_change = self.pending_display_mode != self.current_display_mode
+        self.header_apply_button.set_visible(has_pending_change)
+
+    def on_header_apply_clicked(self, _button):
+        if self.pending_display_mode == self.current_display_mode:
+            self.header_apply_button.set_visible(False)
+            return
+
+        if not write_external_display_env_file(self.display_resolution_env_key, self.pending_display_mode):
+            ui.create_toast(self.toast_overlay, "Failed to save display resolution")
+            return
+
+        print(f"Apply display mode: {self.pending_display_mode}")
+        self.current_display_mode = self.pending_display_mode
+        self.update_header_apply_visibility()
 
     def update_display_info(self):
         if not self.display_enabled:
@@ -351,6 +483,7 @@ class ExternalDisplays(Adw.Application):
         # Refresh display information
         self.update_display_info()
         self.load_input_devices()
+        self.load_display_modes()
         self.update_dock_banner()
         self.update_display_services_switch_state()
         ui.create_toast(self.toast_overlay, "Refresh complete")
@@ -476,6 +609,15 @@ class ExternalDisplays(Adw.Application):
 
         preferences_page.add(info_group)
 
+        # Display Settings group
+        display_settings_group = ui.create_preferences_group("Display Settings")
+        self.display_resolution_expander = ui.create_expander_row(
+            "Display Resolution",
+            "Select display resolution",
+        )
+        display_settings_group.add(self.display_resolution_expander)
+        preferences_page.add(display_settings_group)
+
         self.display_info_labels = {
             "status": self.status_value,
             "power_state": self.power_value,
@@ -489,6 +631,7 @@ class ExternalDisplays(Adw.Application):
         self.inputs_expander = ui.create_expander_row("Input Devices", "Select devices to redirect")
 
         self.load_input_devices()
+        self.load_display_modes()
 
         inputs_group.add(self.inputs_expander)
         preferences_page.add(inputs_group)
@@ -566,14 +709,25 @@ class ExternalDisplays(Adw.Application):
                 self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.refresh_display_info)
 
             self.inputs_expander.set_sensitive(True)
+            if self.display_resolution_expander is not None:
+                self.display_resolution_expander.set_sensitive(True)
             self.refresh_display_info()
             self.load_input_devices()
+            self.load_display_modes()
         else:
             for _key, label in self.display_info_labels.items():
                 label.set_text("")
 
             self.inputs_expander.set_sensitive(False)
+
+            if self.display_resolution_expander is not None:
+                self.display_resolution_expander.set_sensitive(False)
+                self.display_resolution_expander.set_expanded(False)
+
+            self.pending_display_mode = self.current_display_mode
             self.load_input_devices()
+            self.load_display_modes()
+            self.update_header_apply_visibility()
 
             if self.refresh_timeout_id is not None:
                 GLib.source_remove(self.refresh_timeout_id)
@@ -672,6 +826,7 @@ class ExternalDisplays(Adw.Application):
                 GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services enabled successfully")
                 GLib.idle_add(self.update_display_ui_state, True)
                 GLib.idle_add(self.load_input_devices)
+                GLib.idle_add(self.load_display_modes)
                 GLib.idle_add(self.update_display_services_switch_state)
             else:
                 # Restore if we failed
@@ -687,6 +842,7 @@ class ExternalDisplays(Adw.Application):
                 GLib.idle_add(lambda: self.display_services_switch.set_active(False))
                 GLib.idle_add(lambda: self.inputs_expander.set_expanded(False))
                 GLib.idle_add(self.load_input_devices)
+                GLib.idle_add(self.load_display_modes)
                 GLib.idle_add(self.update_display_services_switch_state)
 
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
@@ -700,6 +856,7 @@ class ExternalDisplays(Adw.Application):
 
             GLib.idle_add(lambda: self.inputs_expander.set_expanded(False))
             GLib.idle_add(self.load_input_devices)
+            GLib.idle_add(self.load_display_modes)
             GLib.idle_add(self.update_display_services_switch_state)
             GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
 
@@ -729,12 +886,14 @@ class ExternalDisplays(Adw.Application):
             GLib.idle_add(ui.create_toast, self.toast_overlay, "Display services stopped successfully")
             GLib.idle_add(self.update_display_ui_state, False)
             GLib.idle_add(self.load_input_devices)
+            GLib.idle_add(self.load_display_modes)
             GLib.idle_add(self.update_display_services_switch_state)
         except Exception as e:
             print(f"Unexpected error in stop_display_services: {e}")
             GLib.idle_add(ui.create_toast, self.toast_overlay, f"Error stopping display services: {e}")
             self.display_enabled = False
             GLib.idle_add(self.load_input_devices)
+            GLib.idle_add(self.load_display_modes)
             GLib.idle_add(self.update_display_services_switch_state)
 
         GLib.idle_add(lambda: self.inputs_expander.set_expanded(False))

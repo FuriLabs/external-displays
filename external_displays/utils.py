@@ -138,11 +138,124 @@ def detect_connector(card_path):
     if matching_paths:
         basename = os.path.basename(matching_paths[0])
         connector = basename.split("-", 1)[1]
-        print(f"Default connector not found. Using: {connector}")
         return connector
 
     print(f"No DVI-I connectors found. Falling back to default: {default_connector}")
     return default_connector
+
+def get_display_modes(card_path, connector):
+    modes_path = f"/sys/class/drm/{card_path}-{connector}/modes"
+
+    try:
+        if not os.path.exists(modes_path):
+            print(f"Display modes file not found: {modes_path}")
+            return []
+
+        with open(modes_path, "r", encoding="utf-8", errors="ignore") as f:
+            modes = [line.strip() for line in f if line.strip()]
+
+        return list(dict.fromkeys(modes))
+    except Exception as e:
+        print(f"Failed to read display modes from {modes_path}: {e}")
+        return []
+
+def get_external_display_env_path():
+    uid = os.getuid()
+    return f"/run/user/{uid}/.external_display_env"
+
+def read_external_display_env_file(key, env_path=None):
+    if env_path is None:
+        env_path = get_external_display_env_path()
+
+    prefix = f"{key}="
+
+    try:
+        if not os.path.exists(env_path):
+            return None
+
+        with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(prefix):
+                    value = line[len(prefix):].strip()
+                    return value or None
+    except Exception as e:
+        print(f"Failed to read external display env file {env_path}: {e}")
+
+    return None
+
+def write_external_display_env_file(key, value, env_path=None):
+    if env_path is None:
+        env_path = get_external_display_env_path()
+
+    try:
+        existing = {}
+
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or "=" not in line:
+                        continue
+
+                    existing_key, existing_value = line.split("=", 1)
+                    existing_key = existing_key.strip()
+                    existing_value = existing_value.strip()
+
+                    if existing_key:
+                        existing[existing_key] = existing_value
+
+        existing[key] = str(value)
+
+        os.makedirs(os.path.dirname(env_path), exist_ok=True)
+        with open(env_path, "w", encoding="utf-8") as f:
+            for existing_key, existing_value in existing.items():
+                f.write(f"{existing_key}={existing_value}\n")
+
+        return True
+    except Exception as e:
+        print(f"Failed to write external display env file {env_path}: {e}")
+        return False
+
+def remove_external_display_env_file(key, env_path=None):
+    if env_path is None:
+        env_path = get_external_display_env_path()
+
+    try:
+        if not os.path.exists(env_path):
+            return True
+
+        kept_lines = []
+        removed = False
+
+        with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                stripped = line.strip()
+
+                if not stripped or "=" not in stripped:
+                    kept_lines.append(line)
+                    continue
+
+                existing_key, _existing_value = stripped.split("=", 1)
+                if existing_key.strip() == key:
+                    removed = True
+                    continue
+
+                kept_lines.append(line)
+
+        if not removed:
+            return True
+
+        if kept_lines:
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.writelines(kept_lines)
+        else:
+            os.remove(env_path)
+
+        return True
+    except Exception as e:
+        print(f"Failed to remove external display env file {env_path}: {e}")
+        return False
 
 def get_sysfs_event_name(by_id_name, real_path):
     name = None
