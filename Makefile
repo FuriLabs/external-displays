@@ -8,7 +8,7 @@ SYSTEMDSYSTEMDIR = $(LIBDIR)/systemd/system
 
 INSTALL_DIR = $(LIBDIR)/external-displays
 DESKTOP_DIR = $(DATADIR)/applications
-ICON_DIR = $(DATADIR)/icons/hicolor/64x64/apps
+ICON_DIR = $(DATADIR)/icons/hicolor/scalable/apps
 POLKIT_DIR = $(DATADIR)/polkit-1/rules.d
 
 .PHONY: all install uninstall
@@ -38,7 +38,7 @@ install:
 	install -m 644 data/50-external-displays.rules $(DESTDIR)$(POLKIT_DIR)
 
 	install -m 644 data/io.furios.ExternalDisplays.desktop $(DESTDIR)$(DESKTOP_DIR)/
-	install -m 644 data/io.furios.ExternalDisplays.png $(DESTDIR)$(ICON_DIR)/
+	install -m 644 data/io.furios.ExternalDisplays.svg $(DESTDIR)$(ICON_DIR)/
 
 	ln -sf ../lib/external-displays/main.py $(DESTDIR)$(BINDIR)/io.furios.ExternalDisplays
 

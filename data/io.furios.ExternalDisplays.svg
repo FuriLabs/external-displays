@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <!-- Monitor -->
+  <rect x="12" y="40" width="150" height="130" rx="28" ry="28" fill="#3584e4" stroke="#241f31" stroke-width="4"/>
+  <rect x="26" y="54" width="122" height="102" rx="16" ry="16" fill="#99c1f1"/>
+
+  <!-- Monitor stand -->
+  <rect x="73" y="170" width="28" height="24" rx="8" ry="8" fill="#77767b" stroke="#241f31" stroke-width="4"/>
+  <rect x="49" y="194" width="76" height="20" rx="10" ry="10" fill="#9a9996" stroke="#241f31" stroke-width="4"/>
+
+  <!-- Phone -->
+  <rect x="170" y="40" width="74" height="120" rx="26" ry="26" fill="#3d3846" stroke="#241f31" stroke-width="4"/>
+  <rect x="176" y="46" width="62" height="108" rx="20" ry="20" fill="#7b6cff"/>
+
+  <!-- Earpiece -->
+  <rect x="199" y="52" width="16" height="4" rx="2" ry="2" fill="#77767b"/>
+
+  <!-- Dock top -->
+  <path d="M176 160
+           C176 152 182 148 190 148
+           L224 148
+           C232 148 238 152 238 160
+           L238 166
+           L176 166
+           Z"
+        fill="#77767b" stroke="#241f31" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- Dock connector -->
+  <rect x="196" y="166" width="22" height="20" rx="8" ry="8" fill="#5e5c64" stroke="#241f31" stroke-width="4"/>
+
+  <!-- Dock base -->
+  <rect x="185" y="186" width="44" height="28" rx="10" ry="10" fill="#77767b" stroke="#241f31" stroke-width="4"/>
+
+  <!-- Base details -->
+  <rect x="191" y="195" width="7" height="4" rx="2" ry="2" fill="#241f31" opacity="0.75"/>
+  <rect x="216" y="195" width="7" height="4" rx="2" ry="2" fill="#241f31" opacity="0.75"/>
+</svg>
