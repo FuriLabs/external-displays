@@ -39,7 +39,6 @@ from external_displays.utils import (
 
 from external_displays import ui
 
-
 class ExternalDisplays(Adw.Application):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
