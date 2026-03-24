@@ -2,15 +2,6 @@
 
 ENV_FILE="/run/user/$(id -u)/.external_display_env"
 
-cleanup() {
-    echo "Restoring Wayland environment variables..."
-    dbus-update-activation-environment --systemd DISPLAY="" XDG_SESSION_TYPE=wayland EGL_PLATFORM=wayland GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland
-    echo "Cleanup complete."
-    exit
-}
-
-trap cleanup SIGINT SIGTERM
-
 kill_pair_and_cleanup() {
     local pid1="$1"
     local pid2="$2"
@@ -95,20 +86,5 @@ if [ -x /usr/libexec/mutter-furios-screencast-streamer ]; then
 
     kill_pair_and_cleanup "$STREAMER_PID" "$SHELL_PID"
 else
-    echo "Setting X11 environment variables..."
-    dbus-update-activation-environment --systemd DISPLAY=:1 XDG_SESSION_TYPE=x11 EGL_PLATFORM=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb
-
-    DISPLAY=:1
-    XDG_SESSION_TYPE=x11
-    EGL_PLATFORM=x11
-    GDK_BACKEND=x11
-    export DISPLAY
-    export XDG_SESSION_TYPE
-    export EGL_PLATFORM
-    export GDK_BACKEND
-
-    echo "Starting GNOME Shell with X11..."
-    gnome-shell --force-animations --x11
-
-    cleanup
+    echo "No method for external display available"
 fi

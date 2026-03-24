@@ -3,8 +3,7 @@ polkit.addRule(function(action, subject) {
          action.id == "org.freedesktop.systemd1.restart-unit" ||
          action.id == "org.freedesktop.systemd1.stop-unit" ||
          action.id == "org.freedesktop.systemd1.start-unit") &&
-        (action.lookup("unit") == "external-display-display-server.service" ||
-         action.lookup("unit") == "displaylink-driver.service") &&
+        (action.lookup("unit") == "displaylink-driver.service") &&
         subject.user == "furios") {
         return polkit.Result.YES;
     }

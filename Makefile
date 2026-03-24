@@ -4,7 +4,6 @@ BINDIR = $(PREFIX)/bin
 LIBEXECDIR = $(PREFIX)/libexec
 DATADIR = $(PREFIX)/share
 SYSTEMDUSERDIR = $(LIBDIR)/systemd/user
-SYSTEMDSYSTEMDIR = $(LIBDIR)/systemd/system
 
 INSTALL_DIR = $(LIBDIR)/external-displays
 DESKTOP_DIR = $(DATADIR)/applications
@@ -25,15 +24,12 @@ install:
 	install -d $(DESTDIR)$(SYSTEMDUSERDIR)
 	install -d $(DESTDIR)$(SYSTEMDSYSTEMDIR)
 	install -d $(DESTDIR)$(POLKIT_DIR)
-	install -d $(DESTDIR)$(DATADIR)/external-displays
 
 	cp -r external_displays $(DESTDIR)$(INSTALL_DIR)/
 
 	install -m 755 main.py $(DESTDIR)$(INSTALL_DIR)/
 
 	install -m 755 data/start-externaldisplay $(DESTDIR)$(LIBEXECDIR)
-	install -m 644 data/xorg.card1.conf $(DESTDIR)$(DATADIR)/external-displays
-	install -m 644 data/external-display-display-server.service $(DESTDIR)$(SYSTEMDSYSTEMDIR)
 	install -m 644 data/externaldisplay.service $(DESTDIR)$(SYSTEMDUSERDIR)
 	install -m 644 data/50-external-displays.rules $(DESTDIR)$(POLKIT_DIR)
 
@@ -46,8 +42,6 @@ uninstall:
 	rm -rf $(DESTDIR)$(INSTALL_DIR)
 
 	rm -f $(DESTDIR)$(LIBEXECDIR)/start-externaldisplay
-	rm -rf $(DESTDIR)$(DATADIR)/external-displays
-	rm -f $(DESTDIR)$(SYSTEMDSYSTEMDIR)/external-display-display-server.service
 	rm -f $(DESTDIR)$(SYSTEMDUSERDIR)/externaldisplay.service
 	rm -f $(DESTDIR)$(POLKIT_DIR)/50-external-displays.rules
 

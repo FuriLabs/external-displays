@@ -25,7 +25,6 @@ from external_displays.utils import (
     detect_connector,
     set_gnome_wm_preference,
     get_input_device_candidates,
-    set_input_redirector_display,
     set_input_redirector_input_paths,
     get_input_redirector_input_paths,
     set_power_profile_overdrive,
@@ -45,7 +44,6 @@ class ExternalDisplays(Adw.Application):
         self.connect("activate", self.on_activate)
 
         # Display and hardware configuration
-        self.target_display = os.environ.get("DISPLAY", ":1")
         self.card_path = "card1"
         self.enable_file_path = "/tmp/.enable_external_display"
         self.default_display_mode = "1920x1080"
@@ -790,8 +788,6 @@ class ExternalDisplays(Adw.Application):
                 GLib.idle_add(self.ensure_close_progress_dialog, priority=GLib.PRIORITY_HIGH)
                 return False
 
-            set_input_redirector_display(self.target_display)
-
             try:
                 open(self.enable_file_path, "a").close()
             except Exception as e:
@@ -813,10 +809,6 @@ class ExternalDisplays(Adw.Application):
                     self.toast_overlay,
                     f"Timeout waiting for display connection at path {self.card_path} and connector {detect_connector(self.card_path)}",
                 )
-                success = False
-
-            if success and not start_service("external-display-display-server.service", system_bus=True):
-                GLib.idle_add(ui.create_toast, self.toast_overlay, "Failed to start display server")
                 success = False
 
             if success and not start_service("externaldisplay.service"):
@@ -884,7 +876,6 @@ class ExternalDisplays(Adw.Application):
 
             stop_service("externaldisplay.service")
             stop_service("input-redirector.service")
-            stop_service("external-display-display-server.service", system_bus=True)
             stop_service("displaylink-driver.service", system_bus=True)
 
             set_input_redirector_input_paths("")

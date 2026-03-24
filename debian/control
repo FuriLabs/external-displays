@@ -22,7 +22,6 @@ Depends: ${misc:Depends},
          gir1.2-adw-1,
          gir1.2-glib-2.0,
          input-redirector,
-         mutter-furios-screencast-streamer,
          external-displays-configs,
 Description: External Displays management application for FuriOS
 
@@ -31,7 +30,6 @@ Architecture: all
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${misc:Depends},
          ${python3:Depends},
-         xserver-xorg-core,
-         dbus-bin,
          gnome-shell,
+         mutter-furios-screencast-streamer,
 Description: External Displays management application for FuriOS - configurations

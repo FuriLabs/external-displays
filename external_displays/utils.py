@@ -373,15 +373,6 @@ def set_gnome_wm_preference(value):
         print(f"Failed to set gsettings org.gnome.desktop.wm.preferences button-layout='{value}': {e}")
         return False
 
-def set_input_redirector_display(target_display):
-    try:
-        settings = Gio.Settings.new("io.furios.input-redirector")
-        settings.set_string("display", target_display)
-        return True
-    except Exception as e:
-        print(f"Failed to set input redirector display: {e}")
-        return False
-
 def set_input_redirector_input_paths(value):
     try:
         settings = Gio.Settings.new("io.furios.input-redirector")
