@@ -32,5 +32,5 @@ Depends: ${misc:Depends},
          ${python3:Depends},
          gnome-shell,
          mutter-furios-screencast-streamer,
-         evdi-userspace | systemd,
+         evdi-userspace,
 Description: External Displays management application for FuriOS - configurations
