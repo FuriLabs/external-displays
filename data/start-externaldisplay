@@ -21,8 +21,6 @@ kill_pair_and_cleanup() {
     if [ -n "$pid2" ] && kill -0 "$pid2" 2>/dev/null; then
         kill -9 "$pid2" 2>/dev/null || true
     fi
-
-    cleanup
 }
 
 load_external_display_env() {
