@@ -61,6 +61,8 @@ load_external_display_env
 if [ -x /usr/libexec/mutter-furios-screencast-streamer ]; then
     echo "mutter-furios-screencast-streamer found, using mutter wayland backend"
 
+    gsettings set org.gnome.mutter experimental-features []
+
     XDG_SESSION_TYPE=wayland
     GNOME_SHELL_SKIP_DBUS=1
     GNOME_SHELL_WAYLAND_SOCKET=wayland-1
